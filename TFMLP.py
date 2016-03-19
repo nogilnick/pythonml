@@ -1,10 +1,7 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Sat Feb 27 18:43:21 2016
-
-@author: nicholas smith
-"""
-
+#TFMLP.py
+#This file contains a class implementing a multi-layer perceptron (MLP)
+#using numpy and tensorflow. Both a MLP for regression (MLPR) and a MLP
+#for classification (MLPC) are provided.
 import tensorflow as tf
 import numpy as np
 
