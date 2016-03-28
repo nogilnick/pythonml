@@ -1,2 +1,2 @@
 # pythonml
-This repository contains various python machine learning classes and tools.
+Various python machine learning classes and tools.
