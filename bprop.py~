@@ -69,7 +69,7 @@ for c in range(numIter):
 			D[j - 1] = np.multiply(np.dot(D[j], W[j].T), dF[j](O[j]))
 		#Perform weight and bias updates
 		for j in range(n - 1):
-			W[j] = W[j] + a * np.outer(O[j], D[j])
+			W[j] = W[j] + a * np.dot(O[j].T, D[j])
 			B[j] = B[j] + a * D[j]		
 
 print('\nFinal weights:')
