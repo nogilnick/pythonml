@@ -12,7 +12,7 @@ import numpy as np
 #yHat: The predicted labels
 #return: The percentage correct
 def _Accuracy(y, yHat):
-    n = len(y)
+    n = float(len(y))
     return np.sum(y == yHat) / n
 
 #Create the MLP variables for TF graph
@@ -232,6 +232,16 @@ class MLPR:
     #Batch size
     batSz = None
 
+    #The constructor
+    #param layers: A list of layer sizes
+    #param actvFn: The activation function to use: 'tanh', 'sig', or 'relu'
+    #param learnRate: The learning rate parameter
+    #param decay: The decay parameter
+    #param maxItr: Maximum number of training iterations
+    #param tol: Maximum error tolerated 
+    #param batchSize: Size of training batches to use (use all if None)
+    #param verbose: Print training information
+    #param reg: Regularization weight
     def __init__(self, layers, actvFn = 'tanh', learnRate = 0.001, decay = 0.9, maxItr = 2000,
                  tol = 1e-2, batchSize = None, verbose = False, reg = 0.001):
         #Parameters
