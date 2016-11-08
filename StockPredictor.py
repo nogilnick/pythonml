@@ -272,8 +272,8 @@ class StockPredictor:
     #
     #startDate:     The start date as a string in yyyy-mm-dd format
     #endDate:       The end date as a string yyyy-mm-dd format
-	#period:		'daily', 'weekly', or 'monthly' for the time period
-	#				between predictions
+    #period:		'daily', 'weekly', or 'monthly' for the time period
+    #				between predictions
     #return:        A dataframe containing the predictions or
     def PredictDate(self, startDate, endDate, period = 'weekly'):
         #Create the range of timestamps and reverse them
