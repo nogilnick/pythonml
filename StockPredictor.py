@@ -22,17 +22,25 @@ from sklearn.cross_validation import KFold
 #
 #startDate:     The start date as a string xxxx-xx-xx 
 #endDate:       The end date as a string year-month-day
+#period:		'daily', 'weekly', or 'monthly'
 #weekends:      True if weekends should be included; false otherwise
 #return:        A numpy array of timestamps        
-def DateRange(startDate, endDate, weekends = False):
+def DateRange(startDate, endDate, period, weekends = False):
     #The start and end date
     sd = datetime.strptime(startDate, '%Y-%m-%d')
     ed = datetime.strptime(endDate, '%Y-%m-%d')
     #Invalid start and end dates
     if(sd > ed):
         raise ValueError("The start date cannot be later than the end date.")
-    #One day
-    day = timedelta(1)
+    #One time period is a day
+    if(period == 'daily'):
+        prd = timedelta(1)
+    #One prediction per week
+    elif(period == 'weekly'):
+        prd = timedelta(7)
+    #one prediction every 30 days ("month")
+    else:
+        prd = timedelta(30)
     #The final list of timestamp data
     dates = []
     cd = sd
@@ -40,8 +48,8 @@ def DateRange(startDate, endDate, weekends = False):
         #If weekdays are included or it's a weekday append the current ts
         if(weekends or (cd.date().weekday() != 5 and cd.date().weekday() != 6)):
             dates.append(cd.timestamp())
-        #Onto the next day
-        cd = cd + day
+        #Onto the next period
+        cd = cd + prd
     return np.array(dates)
     
 #Given a date, returns the previous day
@@ -89,8 +97,6 @@ def ParseData(path):
 def PlotData(df, p = None):
     if(p is None):
         p = np.array([])
-    #p contains the indices of predicted data; the rest are actual points
-    c = np.array([i for i in range(df.shape[0]) if i not in p])
     #Timestamp data
     ts = df.Timestamp.values
     #Number of x tick marks
@@ -266,10 +272,12 @@ class StockPredictor:
     #
     #startDate:     The start date as a string in yyyy-mm-dd format
     #endDate:       The end date as a string yyyy-mm-dd format
+	#period:		'daily', 'weekly', or 'monthly' for the time period
+	#				between predictions
     #return:        A dataframe containing the predictions or
-    def PredictDate(self, startDate, endDate):
+    def PredictDate(self, startDate, endDate, period = 'weekly'):
         #Create the range of timestamps and reverse them
-        ts = DateRange(startDate, endDate)[::-1]
+        ts = DateRange(startDate, endDate, period)[::-1]
         m = ts.shape[0]
         #Prediction is based on data prior to start date
         #Get timestamp of previous day
