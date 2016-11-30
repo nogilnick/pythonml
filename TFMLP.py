@@ -63,6 +63,29 @@ def _GetActvFn(name):
         return tf.sigmoid
     elif name == 'relu':
         return tf.nn.relu
+    elif name == 'relu6':
+        return tf.nn.relu6
+    elif name == 'elu':
+        return tf.nn.elu
+    elif name == 'softplus':
+        return tf.nn.softplus
+    elif name == 'softsign':
+        return tf.nn.softsign
+    return None
+
+#Helper function for getting a tensorflow optimizer
+#name:    The name of the optimizer to use
+#lr:      The learning rate if applicable
+#return;  A the tensorflow optimization object
+def _GetOptimizer(name, lr):
+    if(name == 'adam'):
+        return tf.train.AdamOptimizer(learning_rate = lr)
+    elif(name == 'grad'):
+        return tf.train.GradientDescentOptimizer(learning_rate = lr)
+    elif(name == 'adagrad'):
+        return tf.train.AdagradOptimizer(learning_rate = lr)
+    elif(name == 'ftrl'):
+        return tf.train.FtrlOptimizer(learning_rate = lr)
     return None
 
 #Gives the next batch of samples of size self.batSz or the remaining
@@ -105,8 +128,8 @@ class MLPC:
     #The class labels
     _classes = None
 
-    def __init__(self, layers, actvFn = 'tanh', learnRate = 0.001, decay = 0.9, maxItr = 2000,
-                 tol = 1e-2, batchSize = None, verbose = False, reg = 0.001):
+    def __init__(self, layers, actvFn = 'tanh', optmzr = 'adam', learnRate = 0.001, decay = 0.9, 
+                 maxItr = 2000, tol = 1e-2, batchSize = None, verbose = False, reg = 0.001):
         #Parameters
         self.tol = tol
         self.mItr = maxItr
@@ -126,7 +149,11 @@ class MLPC:
         #Use regularization to prevent over-fitting
         if(reg is not None):
             self.loss += _CreateL2Reg(weight, bias) * reg
-        self.optmzr = tf.train.AdamOptimizer(learning_rate=learnRate).minimize(self.loss)
+        self.optmzr = _GetOptimizer(optmzr, learnRate).minimize(self.loss)
+        #Initialize all variables on the TF session
+        self.sess = tf.Session()
+        init = tf.initialize_all_variables()
+        self.sess.run(init)
         
     #Fit the MLP to the data
     #param A: numpy matrix where each row is a sample
@@ -134,11 +161,6 @@ class MLPC:
     def fit(self, A, y):
         m = len(A)
         y = self.to1Hot(y)
-        #Start the tensorflow session and initializer
-        #all variables
-        self.sess = tf.Session()
-        init = tf.initialize_all_variables()
-        self.sess.run(init)
         #Begin training
         for i in range(self.mItr):
             #Batch mode or all at once
@@ -197,17 +219,7 @@ class MLPC:
     #Clean up resources
     def __del__(self):
         self.sess.close()
-    
-    #Create the MLP variables for TF graph
-    #_X: The input matrix
-    #_W: The weight matrices
-    #_B: The bias vectors
-    #_AF: The activation function
-    def _createMLPC(self, _X, _W, _B, _AF):
-        n = len(_W)
-        for i in range(n - 1):
-            _X = _AF(tf.matmul(_X, _W[i]) + _B[i]) 
-        return tf.matmul(_X, _W[n - 1]) + _B[n - 1]
+       
         
 #Multi-Layer Perceptron for Regression
 class MLPR:
@@ -242,8 +254,8 @@ class MLPR:
     #param batchSize: Size of training batches to use (use all if None)
     #param verbose: Print training information
     #param reg: Regularization weight
-    def __init__(self, layers, actvFn = 'tanh', learnRate = 0.001, decay = 0.9, maxItr = 2000,
-                 tol = 1e-2, batchSize = None, verbose = False, reg = 0.001):
+    def __init__(self, layers, actvFn = 'tanh', optmzr = 'adam', learnRate = 0.001, decay = 0.9, 
+                 maxItr = 2000, tol = 1e-2, batchSize = None, verbose = False, reg = 0.001):
         #Parameters
         self.tol = tol
         self.mItr = maxItr
@@ -263,18 +275,17 @@ class MLPR:
         if(reg is not None):
             self.loss += _CreateL2Reg(weight, bias) * reg
         #Use ADAM method to minimize the loss function
-        self.optmzr = tf.train.AdamOptimizer(learning_rate=learnRate).minimize(self.loss)
+        self.optmzr = _GetOptimizer(optmzr, learnRate).minimize(self.loss)
+        #Initialize all variables on the TF session
+        self.sess = tf.Session()
+        init = tf.initialize_all_variables()
+        self.sess.run(init)
         
     #Fit the MLP to the data
     #param A: numpy matrix where each row is a sample
     #param y: numpy matrix of target values
     def fit(self, A, y):
         m = len(A)
-        #Start the tensorflow session and initializer
-        #all variables
-        self.sess = tf.Session()
-        init = tf.initialize_all_variables()
-        self.sess.run(init)
         #Begin training
         for i in range(self.mItr):
             #Batch mode or all at once
@@ -286,7 +297,7 @@ class MLPR:
                     self.sess.run(self.optmzr, feed_dict={self.x:batA, self.y:batY})
             err = np.sqrt(self.sess.run(self.loss, feed_dict={self.x:A, self.y:y}) * 2.0 / m)
             if(self.vrbse):
-                print("Iter " + str(i + 1) + ": " + str(err))
+                print("Iter {:5d}\t{:.8f}".format(i + 1, err))
             if(err < self.tol):
                 break
     
