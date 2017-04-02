@@ -1,0 +1,437 @@
+#TFMLP.py
+#This file contains a class implementing a multi-layer perceptron (MLP)
+#using numpy and tensorflow. Both a MLP for regression (MLPR) and a MLP
+#for classification (MLPC) are provided.
+import tensorflow as tf
+import numpy as np
+
+#Return the classification accuracy
+#given a vector of target labels and
+#predicted labels
+#y: The target labels
+#yHat: The predicted labels
+#return: The percentage correct
+def _Accuracy(y, yHat):
+    n = float(len(y))
+    return np.sum(y == yHat) / n
+
+#Create the MLP variables for TF graph
+#_X: The input matrix
+#_W: The weight matrices
+#_B: The bias vectors
+#_AF: The activation function
+def _CreateMLP(_X, _W, _B, _AF):
+    n = len(_W)
+    for i in range(n - 1):
+        _X = _AF(tf.matmul(_X, _W[i]) + _B[i]) 
+    return tf.matmul(_X, _W[n - 1]) + _B[n - 1]
+
+#Add L2 regularizers for the weight and bias matrices
+#_W: The weight matrices
+#_B: The bias matrices
+#return: tensorflow variable representing l2 regularization cost
+def _CreateL2Reg(_W, _B):
+    n = len(_W)
+    regularizers = tf.nn.l2_loss(_W[0]) + tf.nn.l2_loss(_B[0])
+    for i in range(1, n):
+        regularizers += tf.nn.l2_loss(_W[i]) + tf.nn.l2_loss(_B[i])
+    return regularizers
+
+#Create weight and bias vectors for an MLP
+#layers: The number of neurons in each layer (including input and output)
+#return: A tuple of lists of the weight and bias matrices respectively 
+def _CreateVars(layers):
+    weight = []
+    bias = []
+    n = len(layers)
+    for i in range(n - 1):
+        #Fan-in for layer; used as standard dev
+        lyrstd = np.sqrt(1.0 / layers[i])
+        curW = tf.Variable(tf.random_normal([layers[i], layers[i + 1]], stddev = lyrstd))
+        weight.append(curW)
+        curB = tf.Variable(tf.random_normal([layers[i + 1]], stddev = lyrstd))
+        bias.append(curB)
+    return (weight, bias)   
+
+#Helper function for selecting an activation function
+#name: The name of the activation function
+#return: A handle for the tensorflow activation function
+def _GetActvFn(name):
+    if name == 'tanh':
+        return tf.tanh
+    elif name == 'sig':
+        return tf.sigmoid
+    elif name == 'relu':
+        return tf.nn.relu
+    elif name == 'relu6':
+        return tf.nn.relu6
+    elif name == 'elu':
+        return tf.nn.elu
+    elif name == 'softplus':
+        return tf.nn.softplus
+    elif name == 'softsign':
+        return tf.nn.softsign
+    return None
+
+#Helper function for getting a tensorflow optimizer
+#name:    The name of the optimizer to use
+#lr:      The learning rate if applicable
+#return;  A the tensorflow optimization object
+def _GetOptimizer(name, lr):
+    if(name == 'adam'):
+        return tf.train.AdamOptimizer(learning_rate = lr)
+    elif(name == 'grad'):
+        return tf.train.GradientDescentOptimizer(learning_rate = lr)
+    elif(name == 'adagrad'):
+        return tf.train.AdagradOptimizer(learning_rate = lr)
+    elif(name == 'ftrl'):
+        return tf.train.FtrlOptimizer(learning_rate = lr)
+    return None
+
+#Gives the next batch of samples of size self.batSz or the remaining
+#samples if there are not that many
+#A: Samples to choose from
+#y: Targets to choose from
+#cur: The next sample to use
+#batSz: Size of the batch
+#return: A tuple of the new samples and targets
+def _NextBatch(A, y, cur, batSz):
+    m = len(A)
+    nxt = cur + batSz
+    if(nxt > m):
+        nxt = m
+    return (A[cur:nxt], y[cur:nxt])
+
+#TensorFlow Artificial Neural Network (Base Class)
+class ANN:
+    #Sets up the graph for a convolutional neural network 
+    #from a list of specifications of the form:
+    #[('C', [5, 5, 3, 64], [1, 1, 1, 1]), ('P', [1, 3, 3, 1], [1, 2, 2, 1]),('F', 10),]
+    #Where 'C' denotes a covolution layer, 'P' denotes a pooling layer, and 'F' denotes 
+    #a fully-connected layer.
+    def _CreateCNN(self, ws):
+        self.W = []
+        self.B = []
+        YH = self.X
+        for i, wsi in enumerate(ws):
+            if wsi[0] == 'C':       #Convolutional layer
+                self.W.append(tf.Variable(tf.truncated_normal(wsi[1], stddev = 5e-2)))
+                self.B.append(tf.Variable(tf.constant(0.0, shape = [wsi[1][-1]])))
+                YH = tf.nn.conv2d(YH, self.W[-1], wsi[2], padding = self.pad)
+                YH = tf.nn.bias_add(YH, self.B[-1])  
+                YH = self.AF(YH)    #Apply the activation function to the output
+            elif wsi[0] == 'P':     #Pooling layer
+                YH = tf.nn.max_pool(YH, ksize = wsi[1], strides = wsi[2], padding = self.pad)
+                YH = tf.nn.lrn(YH, 4, bias=1.0, alpha = 0.001 / 9.0, beta = 0.75)
+            elif wsi[0] == 'F':     #Fully-connected layer
+                #Flatten volume of previous layer for fully-connected layer
+                yhs = YH.get_shape()
+                lls = 1
+                for i in yhs[1:]:
+                    lls *= i.value
+                YH = tf.reshape(YH, [-1, lls])
+                self.W.append(tf.Variable(tf.truncated_normal([lls, wsi[1]], stddev = 0.04)))
+                self.B.append(tf.Variable(tf.constant(0.1, shape = [wsi[1]])))
+                YH = tf.matmul(YH, self.W[-1]) + self.B[-1]
+                if i + 1 != len(ws):    #Last layer shouldn't apply activation function
+                    YH = self.AF(YH)        
+        return YH
+
+    #Clean-up resources
+    def __del__(self):
+        self.sess.close()
+    
+    #Common arguments for all artificial neural network regression models
+    #actvFn: The activation function to use: 'tanh', 'sig', or 'relu'
+    #batchSize: Size of training batches to use (use all if None)
+    #learnRate: The learning rate parameter for the optimizer
+    #maxItr: Maximum number of training iterations
+    #optmzr: The optimizer method to use ('adam', 'grad', 'adagrad', or 'ftrl')
+    #reg: Weight of the regularization term (None for no regularization)
+    #tol: Training ends if error falls below this tolerance
+    #verbose: Print training information
+    def __init__(self, actvFn = 'relu', batchSize = None, learnRate = 1e-4, maxIter = 1000,
+                 optmzr = 'adam', reg = None, tol = 1e-1, verbose = False):
+        #Activation function to use
+        self.AF = _GetActvFn(actvFn)
+        #Batch size
+        self.batSz = batchSize
+        #Learning rate
+        self.lr = learnRate
+        #Maximum number of iterations
+        self.mIter = maxIter
+        #Optimizer method
+        self.opt = optmzr
+        #Regularization strength
+        self.reg = reg
+        #Error tolerance
+        self.tol = tol
+        #Verbose output
+        self.vrbse = verbose
+        #Data members to be populated in a subclass
+        self.loss = None
+        self.optmzr = None
+        self.sess = None
+        self.X = None
+        self.Y = None
+        self.YH = None
+        
+    #Start the TensorFlow session
+    def RunSession(self):
+        #Initialize all variables on the TF session
+        self.sess = tf.Session()
+        init = tf.initialize_all_variables()
+        self.sess.run(init)
+
+#Artificial Neural Network for Regression (Base Class)
+class ANNR(ANN):
+    #Fit the MLP to the data
+    #A: numpy matrix where each row is a sample
+    #Y: numpy matrix of target values
+    def fit(self, A, Y):
+        m = len(A)
+        #Begin training
+        for i in range(self.mIter):
+            #Batch mode or all at once
+            if(self.batSz is None):
+                self.sess.run(self.optmzr, feed_dict={self.X:A, self.Y:Y})
+            else:
+                for j in range(0, m, self.batSz):
+                    batA, batY = _NextBatch(A, Y, j, self.batSz)
+                    self.sess.run(self.optmzr, feed_dict = {self.X:batA, self.Y:batY})
+            err = np.sqrt(self.sess.run(self.loss, feed_dict = {self.X:A, self.Y:Y}) * 2.0 / m)
+            if(self.vrbse):
+                print("Iter {:5d}\t{:.8f}".format(i + 1, err))
+            if(err < self.tol):
+                break
+    
+    #Common arguments for all artificial neural network regression models
+    def __init__(self, actvFn = 'relu', batchSize = None, learnRate = 1e-4, maxIter = 1000,
+                 optmzr = 'adam', reg = None, tol = 1e-1, verbose = False):
+        #Initialize fields from base class
+        super().__init__(actvFn, batchSize, learnRate, maxIter, optmzr, reg, tol, verbose)
+        
+    #Predict the output given the input (only run after calling fit)
+    #A: The input values for which to predict outputs 
+    #return: The predicted output values (one row per input sample)
+    def predict(self, A):
+        if(self.sess == None):
+            print("Error: MLP has not yet been fitted.")
+            return None
+        res = self.sess.run(self.YH, feed_dict={self.X:A})
+        return res
+        
+    #Predicts the ouputs for input A and then computes the RMSE between
+    #The predicted values and the actualy values
+    #A: The input values for which to predict outputs 
+    #y: The actual target values
+    #return: The RMSE
+    def score(self, A, y):
+        scr = np.sqrt(self.sess.run(self.loss, feed_dict = {self.X:A, self.Y:y}) * 2.0 / len(A))
+        return scr
+    
+#Convolotional Neural Network for Regression
+class CNNR(ANNR):
+    #imageSize:     Size of the images used (Height, Width, Depth)
+    #ws:            Weight matrix sizes
+    def __init__(self, imageSize, ws, actvFn = 'relu', batchSize = None, learnRate = 1e-4, maxIter = 1000,
+                 optmzr = 'adam', pad = 'SAME', tol = 1e-1, reg = None, verbose = False):
+        #Initialize fields from base class
+        super().__init__(actvFn, batchSize, learnRate, maxIter, optmzr, reg, tol, verbose)
+        #Input placeholder
+        self.imgSize = list(imageSize)
+        self.X = tf.placeholder("float", [None] + self.imgSize)
+        #Padding method to use
+        self.pad = pad
+        #Target vector placeholder; final layer should be a fully connected layer
+        self.Y = tf.placeholder("float", [None, ws[-1][1]])
+        #Create neural network graph and keep track of output variable
+        self.YH = self._CreateCNN(ws)
+        #Loss term
+        self.loss = tf.reduce_sum(tf.nn.l2_loss(self.YH - self.Y))
+        #Use regularization to prevent over-fitting
+        self.reg = reg
+        if(reg is not None):
+            self.loss += _CreateL2Reg(self.W, self.B) * reg
+        self.optmzr = _GetOptimizer(optmzr, learnRate).minimize(self.loss)
+        #Begin the TensorFlow Session
+        self.RunSession()
+       
+#Multi-Layer Perceptron for Regression
+class MLPR(ANNR):
+    #layers: A list of layer sizes
+    def __init__(self, layers, actvFn = 'tanh', batchSize = None, learnRate = 1e-3, 
+                 maxIter = 2000, optmzr = 'adam',  reg = 1e-3, tol = 1e-2, verbose = False):
+        super().__init__(actvFn, batchSize, learnRate, maxIter, optmzr, reg, tol, verbose)
+        #Input size
+        self.X = tf.placeholder("float", [None, layers[0]])
+        #Output size
+        self.Y = tf.placeholder("float", [None, layers[-1]])
+        #Setup the weight and bias variables
+        weight, bias = _CreateVars(layers)       
+        #Create the tensorflow MLP model
+        self.YH = _CreateMLP(self.X, weight, bias, self.AF)
+        #Use L2 as the cost function
+        self.loss = tf.reduce_sum(tf.nn.l2_loss(self.YH - self.Y))
+        #Use regularization to prevent over-fitting
+        if(reg is not None):
+            self.loss += _CreateL2Reg(weight, bias) * reg
+        #Use ADAM method to minimize the loss function
+        self.optmzr = _GetOptimizer(optmzr, learnRate).minimize(self.loss)
+        #Initialize all variables on the TF session
+        self.RunSession()
+    
+#Multi-Layer Perceptron for Binary Data
+class MLPB(MLPR):
+    #layers: A list of layer sizes
+    def __init__(self, layers, actvFn = 'tanh', batchSize = None, learnRate = 0.001,
+                 maxIter = 2000, optmzr = 'adam', reg = 0.001, tol = 1e-2, verbose = False):
+        super().__init__(actvFn, batchSize, learnRate, maxIter, optmzr, reg, tol, verbose)
+        
+    #Fit the MLP to the data
+    #A: numpy matrix where each row is a sample
+    #y: numpy matrix of target values
+    def fit(self, A, Y):
+        #Transform data for better performance
+        A = self.Tx(A)
+        Y = self.Tx(Y)
+        super.fit(A, Y)
+    
+    #Predict the output given the input (only run after calling fit)
+    #A: The input values for which to predict outputs 
+    #return: The predicted output values (one row per input sample)
+    def predict(self, A):
+        if(self.sess == None):
+            print("Error: MLPC has not yet been fitted.")
+            return None
+        A = self.Tx(A)
+        YH = super.predict(A)
+        #Transform back to un-scaled data
+        return self.YHatF(self.TInvX(YH))
+
+    def YHatF(self, y):
+        return y.clip(0.0, 1.0).round().astype(np.int)
+        
+    def Tx(self, y):
+        return (2 * y - 1) * 0.9
+    
+    def TInvX(self, y):
+        return (y / 0.9 + 1) / 2.0
+    
+#Artificial Neural Network for Classification (Base Class)    
+class ANNC(ANN):
+    
+    #Fit the MLP to the data
+    #A: numpy matrix where each row is a sample
+    #y: numpy matrix of target values
+    def fit(self, A, y):
+        m = len(A)
+        y = self.To1Hot(y)
+        #Begin training
+        for i in range(self.mIter):
+            #Batch mode or all at once
+            if(self.batSz is None):
+                self.sess.run(self.optmzr, feed_dict = {self.X:A, self.Y:y})
+            else:
+                for j in range(0, m, self.batSz):
+                    batA, batY = _NextBatch(A, y, j, self.batSz)
+                    self.sess.run(self.optmzr, feed_dict = {self.X:batA, self.Y:batY})
+            err = np.sqrt(np.sum(self.sess.run(self.loss, feed_dict={self.X:A, self.Y:y})) / m)
+            if(self.vrbse):
+                print("Iter " + str(i + 1) + ": " + str(err))
+            if(err < self.tol):
+                break
+    
+    def __init__(self, actvFn = 'tanh', batchSize = None, learnRate = 1e-3, maxIter = 2000,
+                 optmzr = 'adam', reg = 1e-3, tol = 1e-2, verbose = False):
+        super().__init__(actvFn, batchSize, learnRate, maxIter, optmzr, reg, tol, verbose) 
+    
+    #Predict the output given the input (only run after calling fit)
+    #A: The input values for which to predict outputs 
+    #return: The predicted output values (one row per input sample)
+    def predict(self, A):
+        if(self.sess == None):
+            print("Error: MLPC has not yet been fitted.")
+            return None
+        #Get the predicted indices
+        res = np.argmax(self.sess.run(self.YH, feed_dict={self.X:A}), 1)
+        res.shape = [-1]
+        #Return prediction using the original labels
+        return np.array([self._classes[i] for i in res])
+           
+    #Predicts the ouputs for input A and then computes the classification error
+    #The predicted values and the actualy values
+    #A: The input values for which to predict outputs 
+    #y: The actual target values
+    #return: The percent of outputs predicted correctly
+    def score(self, A, y):
+        yHat = self.predict(A)
+        return _Accuracy(y, yHat)
+
+    #Creates an array of 1-hot vectors
+    #based on a vector of class labels
+    #y: The vector of class labels
+    #return: The 1-Hot encoding of y
+    def To1Hot(self, y):
+        lbls = list(set(list(y)))
+        lbls.sort()
+        lblDic = {}
+        self._classes = []
+        for i in range(len(lbls)):
+            lblDic[lbls[i]] = i
+            self._classes.append(lbls[i])
+        b = np.zeros([len(y), len(lbls)])
+        for i in range(len(y)):
+            b[i, lblDic[y[i]]] = 1
+        return b
+    
+#Convolutional Neural Network for Classification
+class CNNC(ANNC):
+    
+    #imageSize:     Size of the images used (Height, Width, Depth)
+    #ws:            Weight matrix sizes
+    def __init__(self, imageSize, ws, actvFn = 'relu', batchSize = None, learnRate = 1e-4, maxIter = 1000, 
+                 optmzr = 'adam', pad = 'SAME', tol = 1e-1, reg = None, verbose = False):
+        #Initialize fields from base class
+        super().__init__(actvFn, batchSize, learnRate, maxIter, optmzr, reg, tol, verbose)
+        #Input placeholder
+        self.imgSize = list(imageSize)
+        self.X = tf.placeholder("float", [None] + self.imgSize)
+        #Padding method to use
+        self.pad = pad
+        #Target vector placeholder; final layer should be a fully connected layer
+        self.Y = tf.placeholder("float", [None, ws[-1][1]])
+        #Create neural network graph and keep track of output variable
+        self.YH = self._CreateCNN(ws)
+        #Loss term
+        self.loss = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(logits = self.YH, labels = self.Y))
+        #Use regularization to prevent over-fitting
+        self.reg = reg
+        if(reg is not None):
+            self.loss += _CreateL2Reg(self.W, self.B) * reg
+        self.optmzr = _GetOptimizer(optmzr, learnRate).minimize(self.loss)
+        #Begin the TensorFlow Session
+        self.RunSession()
+    
+#Multi-Layer Perceptron for Classification
+class MLPC(ANNC):
+
+    def __init__(self, layers, actvFn = 'tanh', batchSize = None, learnRate = 1e-3, maxIter = 2000,
+                 optmzr = 'adam', reg = 1e-3, tol = 1e-2, verbose = False):
+        super().__init__(actvFn, batchSize, learnRate, maxIter, optmzr, reg, tol, verbose)
+        #Input size
+        self.X = tf.placeholder("float", [None, layers[0]])
+        #Output size
+        self.Y = tf.placeholder("float", [None, layers[-1]])
+        #Setup the weight and bias variables
+        weight, bias = _CreateVars(layers)   
+        #Create the tensorflow model
+        self.YH = _CreateMLP(self.X, weight, bias, self.AF)
+        #Cross entropy loss function
+        self.loss = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(logits = self.YH, labels = self.Y))
+        #Use regularization to prevent over-fitting
+        if(reg is not None):
+            self.loss += _CreateL2Reg(weight, bias) * reg
+        self.optmzr = _GetOptimizer(optmzr, learnRate).minimize(self.loss)
+        #Initialize all variables on the TF session
+        self.RunSession()
