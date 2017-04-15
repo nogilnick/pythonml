@@ -11,9 +11,9 @@ import numpy as np
 #y: The target labels
 #yHat: The predicted labels
 #return: The percentage correct
-def _Accuracy(y, yHat):
-	n = float(len(y))
-	return np.sum(y == yHat) / n
+def _Accuracy(Y, YH):
+	n = float(len(Y))
+	return np.sum(Y == YH) / n
 
 #Create the MLP variables for TF graph
 #_X: The input matrix
@@ -88,20 +88,6 @@ def _GetOptimizer(name, lr):
 		return tf.train.FtrlOptimizer(learning_rate = lr)
 	return None
 
-#Gives the next batch of samples of size self.batSz or the remaining
-#samples if there are not that many
-#A: Samples to choose from
-#y: Targets to choose from
-#cur: The next sample to use
-#batSz: Size of the batch
-#return: A tuple of the new samples and targets
-def _NextBatch(A, y, cur, batSz):
-	m = len(A)
-	nxt = cur + batSz
-	if(nxt > m):
-		nxt = m
-	return (A[cur:nxt], y[cur:nxt])
-
 #TensorFlow Artificial Neural Network (Base Class)
 class ANN:
 	#Sets up the graph for a convolutional neural network
@@ -164,6 +150,8 @@ class ANN:
 		self.opt = optmzr
 		#Regularization strength
 		self.reg = reg
+		#Flag for stopping training early
+		self.stopIter = False
 		#Error tolerance
 		self.tol = tol
 		#Verbose output
@@ -203,6 +191,10 @@ class ANN:
 	#Update the maximum number of iterations
 	def SetMaxIter(self, mi):
 		self.mIter = mi
+		
+	#Set the flag for stopping iteration early
+	def SetStopIter(self, si):
+		self.stopIter = si
 
 #Artificial Neural Network for Regression (Base Class)
 class ANNR(ANN):
@@ -216,15 +208,15 @@ class ANNR(ANN):
 			#Batch mode or all at once
 			if self.batSz is None:
 				self.sess.run(self.optmzr, feed_dict={self.X:A, self.Y:Y})
-			else:
-				for j in range(0, m, self.batSz):
-					batA, batY = _NextBatch(A, Y, j, self.batSz)
-					self.sess.run(self.optmzr, feed_dict = {self.X:batA, self.Y:batY})
+			else:	#Train m samples using random batches of size self.bs
+				for j in range(0, m, self.batSz): 
+					bi = np.random.randint(m, size = self.batSz)	#Randomly chosen batch indices
+					self.sess.run(self.optmzr, feed_dict = {self.X:A[bi], self.Y:Y[bi]})
 			err = np.sqrt(self.sess.run(self.loss, feed_dict = {self.X:A, self.Y:Y}) * 2.0 / m)
 			if self.vrbse:
 				print("Iter {:5d}\t{:.8f}".format(i + 1, err))
-			if err < self.tol:
-				break
+			if err < self.tol or self.stopIter:
+				break	#Stop if tolerance was reached or flag was set
 
 	#Common arguments for all artificial neural network regression models
 	def __init__(self, actvFn = 'relu', batchSize = None, learnRate = 1e-4, maxIter = 1000,
@@ -245,10 +237,10 @@ class ANNR(ANN):
 	#Predicts the ouputs for input A and then computes the RMSE between
 	#The predicted values and the actualy values
 	#A: The input values for which to predict outputs
-	#y: The actual target values
+	#Y: The actual target values
 	#return: The RMSE
-	def score(self, A, y):
-		scr = np.sqrt(self.sess.run(self.loss, feed_dict = {self.X:A, self.Y:y}) * 2.0 / len(A))
+	def score(self, A, Y):
+		scr = np.sqrt(self.sess.run(self.loss, feed_dict = {self.X:A, self.Y:Y}) * 2.0 / len(A))
 		return scr
 
 #Convolotional Neural Network for Regression
@@ -307,7 +299,7 @@ class MLPB(MLPR):
 	#layers: A list of layer sizes
 	def __init__(self, layers, actvFn = 'tanh', batchSize = None, learnRate = 0.001,
 				 maxIter = 2000, optmzr = 'adam', reg = 0.001, tol = 1e-2, verbose = False):
-		super().__init__(actvFn, batchSize, learnRate, maxIter, optmzr, reg, tol, verbose)
+		super().__init__(layers, actvFn, batchSize, learnRate, maxIter, optmzr, reg, tol, verbose)
 
 	#Fit the MLP to the data
 	#A: numpy matrix where each row is a sample
@@ -316,7 +308,7 @@ class MLPB(MLPR):
 		#Transform data for better performance
 		A = self.Tx(A)
 		Y = self.Tx(Y)
-		super.fit(A, Y)
+		super().fit(A, Y)
 
 	#Predict the output given the input (only run after calling fit)
 	#A: The input values for which to predict outputs
@@ -326,18 +318,18 @@ class MLPB(MLPR):
 			print("Error: MLPC has not yet been fitted.")
 			return None
 		A = self.Tx(A)
-		YH = super.predict(A)
+		YH = super().predict(A)
 		#Transform back to un-scaled data
 		return self.YHatF(self.TInvX(YH))
 
-	def YHatF(self, y):
-		return y.clip(0.0, 1.0).round().astype(np.int)
+	def YHatF(self, Y):
+		return Y.clip(0.0, 1.0).round().astype(np.int)
 
-	def Tx(self, y):
-		return (2 * y - 1) * 0.9
+	def Tx(self, Y):
+		return (2 * Y - 1) * 0.9
 
-	def TInvX(self, y):
-		return (y / 0.9 + 1) / 2.0
+	def TInvX(self, Y):
+		return (Y / 0.9 + 1) / 2.0
 
 #Artificial Neural Network for Classification (Base Class)
 class ANNC(ANN):
@@ -345,23 +337,23 @@ class ANNC(ANN):
 	#Fit the MLP to the data
 	#A: numpy matrix where each row is a sample
 	#y: numpy matrix of target values
-	def fit(self, A, y):
+	def fit(self, A, Y):
 		m = len(A)
-		y = self.To1Hot(y)
+		Y = self.To1Hot(Y)
 		#Begin training
 		for i in range(self.mIter):
 			#Batch mode or all at once
 			if self.batSz is None:
-				self.sess.run(self.optmzr, feed_dict = {self.X:A, self.Y:y})
-			else:
-				for j in range(0, m, self.batSz):
-					batA, batY = _NextBatch(A, y, j, self.batSz)
-					self.sess.run(self.optmzr, feed_dict = {self.X:batA, self.Y:batY})
-			err = np.sqrt(np.sum(self.sess.run(self.loss, feed_dict={self.X:A, self.Y:y})) / m)
+				self.sess.run(self.optmzr, feed_dict = {self.X:A, self.Y:Y})
+			else:	#Train m samples using random batches of size self.bs
+				for j in range(0, m, self.batSz): 
+					bi = np.random.randint(m, size = self.batSz)	#Randomly chosen batch indices
+					self.sess.run(self.optmzr, feed_dict = {self.X:A[bi], self.Y:Y[bi]})
+			err = np.sqrt(np.sum(self.sess.run(self.loss, feed_dict={self.X:A, self.Y:Y})) / m)
 			if self.vrbse:
 				print("Iter " + str(i + 1) + ": " + str(err))
-			if err < self.tol:
-				break
+			if err < self.tol or self.stopIter:
+				break	#Stop if tolerance was reached or flag was set
 
 	def __init__(self, actvFn = 'tanh', batchSize = None, learnRate = 1e-3, maxIter = 2000,
 				 optmzr = 'adam', reg = 1e-3, tol = 1e-2, verbose = False):
@@ -391,22 +383,22 @@ class ANNC(ANN):
 	#A: The input values for which to predict outputs
 	#y: The actual target values
 	#return: The percent of outputs predicted correctly
-	def score(self, A, y):
-		yHat = self.predict(A)
-		return _Accuracy(y, yHat)
+	def score(self, A, Y):
+		YH = self.predict(A)
+		return _Accuracy(Y, YH)
 
 	#Creates an array of 1-hot vectors
 	#based on a vector of class labels
 	#y: The vector of class labels
 	#return: The 1-Hot encoding of y
-	def To1Hot(self, y):
-		self._classes = sorted(list(set(list(y))))
+	def To1Hot(self, Y):
+		self._classes = sorted(list(set(list(Y))))
 		lblDic = {}
 		for i, ci in enumerate(self._classes):
 			lblDic[ci] = i
-		b = np.zeros([len(y), len(self._classes)])
-		for i in range(len(y)):
-			b[i, lblDic[y[i]]] = 1
+		b = np.zeros([len(Y), len(self._classes)])
+		for i in range(len(Y)):
+			b[i, lblDic[Y[i]]] = 1
 		return b
 
 #Convolutional Neural Network for Classification
