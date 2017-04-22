@@ -206,13 +206,14 @@ class ANNR(ANN):
 		#Begin training
 		for i in range(self.mIter):
 			#Batch mode or all at once
-			if self.batSz is None:
-				self.sess.run(self.optmzr, feed_dict={self.X:A, self.Y:Y})
+			if self.batSz is None:	#Compute loss and optimize simultaneously
+				err, _ = self.sess.run([self.loss, self.optmzr], feed_dict={self.X:A, self.Y:Y})
 			else:	#Train m samples using random batches of size self.bs
-				for j in range(0, m, self.batSz): 
+				err = 0.0
+				for j in range(0, m, self.batSz): #Compute loss and optimize simultaneously
 					bi = np.random.randint(m, size = self.batSz)	#Randomly chosen batch indices
-					self.sess.run(self.optmzr, feed_dict = {self.X:A[bi], self.Y:Y[bi]})
-			err = np.sqrt(self.sess.run(self.loss, feed_dict = {self.X:A, self.Y:Y}) * 2.0 / m)
+					l, _ = self.sess.run([self.loss, self.optmzr], feed_dict = {self.X:A[bi], self.Y:Y[bi]})
+					err += l	#Accumulate loss over all batches
 			if self.vrbse:
 				print("Iter {:5d}\t{:.8f}".format(i + 1, err))
 			if err < self.tol or self.stopIter:
@@ -343,15 +344,16 @@ class ANNC(ANN):
 		#Begin training
 		for i in range(self.mIter):
 			#Batch mode or all at once
-			if self.batSz is None:
-				self.sess.run(self.optmzr, feed_dict = {self.X:A, self.Y:Y})
+			if self.batSz is None:	#Compute loss and optimize simultaneously
+				err, _ = self.sess.run([self.loss, self.optmzr], feed_dict={self.X:A, self.Y:Y})
 			else:	#Train m samples using random batches of size self.bs
-				for j in range(0, m, self.batSz): 
+				err = 0.0
+				for j in range(0, m, self.batSz): #Compute loss and optimize simultaneously
 					bi = np.random.randint(m, size = self.batSz)	#Randomly chosen batch indices
-					self.sess.run(self.optmzr, feed_dict = {self.X:A[bi], self.Y:Y[bi]})
-			err = np.sqrt(np.sum(self.sess.run(self.loss, feed_dict={self.X:A, self.Y:Y})) / m)
+					l, _ = self.sess.run([self.loss, self.optmzr], feed_dict = {self.X:A[bi], self.Y:Y[bi]})
+					err += l	#Accumulate loss over all batches
 			if self.vrbse:
-				print("Iter " + str(i + 1) + ": " + str(err))
+				print("Iter {:5d}\t{:.8f}".format(i + 1, err))
 			if err < self.tol or self.stopIter:
 				break	#Stop if tolerance was reached or flag was set
 

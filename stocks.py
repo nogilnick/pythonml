@@ -79,7 +79,7 @@ def Main(args):
     h = int((i + o) / 2)
     #The list of layer sizes
     layers = [i, h, h, h, h, h, h, o]
-    #R = MLPR(layers, maxItr = 1000, tol = 0.40, reg = 0.001, verbose = True)
+    #R = MLPR(layers, maxIter = 1000, tol = 0.01, reg = 0.001, verbose = True)
     R = KNeighborsRegressor(n_neighbors = 5)
     sp = StockPredictor(R, nPastDays = numPastDays)
     #Learn the dataset and then display performance statistics
@@ -99,4 +99,4 @@ def Main(args):
 #Main entry point for the program
 if __name__ == "__main__":
     #Main(sys.argv[1:])
-    p, n = Main(['D:/Documents/Python Scripts/Stocks/yahoostock.csv', '2016-11-02', '2016-12-31', 'D'])
+    p, n = Main(['yahoostock.csv', '2016-11-02', '2016-12-31', 'D'])
