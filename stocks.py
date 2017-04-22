@@ -13,7 +13,7 @@ import sys
 #Used to check validity of date
 from datetime import datetime
 
-#from TFMLP import MLPR
+#from TFANN import MLPR
     
 #Display usage information
 def PrintUsage():

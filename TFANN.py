@@ -232,8 +232,7 @@ class ANNR(ANN):
 		if self.sess is None:
 			print("Error: MLP has not yet been fitted.")
 			return None
-		res = self.sess.run(self.YH, feed_dict={self.X:A})
-		return res
+		return self.sess.run(self.YH, feed_dict={self.X:A})
 
 	#Predicts the ouputs for input A and then computes the RMSE between
 	#The predicted values and the actualy values
@@ -241,8 +240,7 @@ class ANNR(ANN):
 	#Y: The actual target values
 	#return: The RMSE
 	def score(self, A, Y):
-		scr = np.sqrt(self.sess.run(self.loss, feed_dict = {self.X:A, self.Y:Y}) * 2.0 / len(A))
-		return scr
+		return np.sqrt(self.sess.run(self.loss, feed_dict = {self.X:A, self.Y:Y}) * 2.0) / len(A)
 
 #Convolotional Neural Network for Regression
 class CNNR(ANNR):
@@ -261,7 +259,7 @@ class CNNR(ANNR):
 		self.Y = tf.placeholder("float", [None, ws[-1][1]])
 		#Create neural network graph and keep track of output variable
 		self.YH = self._CreateCNN(ws)
-		#Loss term
+		#l2_loss of t is sum(t**2)/2
 		self.loss = tf.reduce_sum(tf.nn.l2_loss(self.YH - self.Y))
 		#Use regularization to prevent over-fitting
 		self.reg = reg
@@ -285,7 +283,7 @@ class MLPR(ANNR):
 		weight, bias = _CreateVars(layers)
 		#Create the tensorflow MLP model
 		self.YH = _CreateMLP(self.X, weight, bias, self.AF)
-		#Use L2 as the cost function
+		#l2_loss of t is sum(t**2)/2
 		self.loss = tf.reduce_sum(tf.nn.l2_loss(self.YH - self.Y))
 		#Use regularization to prevent over-fitting
 		if reg is not None:
