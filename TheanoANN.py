@@ -118,8 +118,6 @@ class TheanoMLPR:
 					print('Iter {:7d}: {:8f}'.format(1 + i, loss))
 				if loss < self.tol:
 					break
-			while gc.collect() > 0:
-				pass
 
 	#Predict the output given the input (only run after calling fit)
 	#A: 	The input values for which to predict outputs
