@@ -1,7 +1,7 @@
 #TFANN.py
-#This file contains a class implementing a multi-layer perceptron (MLP)
-#using numpy and tensorflow. Both a MLP for regression (MLPR) and a MLP
-#for classification (MLPC) are provided.
+#This file contains classes implementing ANN using numpy 
+#and tensorflow. Presently, multi-layer perceptron (MLP) 
+#and convolutional neural networks (CNN) are supported.
 import tensorflow as tf
 import numpy as np
 
@@ -131,7 +131,7 @@ class ANN:
 	#actvFn: The activation function to use: 'tanh', 'sig', or 'relu'
 	#batchSize: Size of training batches to use (use all if None)
 	#learnRate: The learning rate parameter for the optimizer
-	#maxItr: Maximum number of training iterations
+	#maxIter: Maximum number of training iterations
 	#optmzr: The optimizer method to use ('adam', 'grad', 'adagrad', or 'ftrl')
 	#reg: Weight of the regularization term (None for no regularization)
 	#tol: Training ends if error falls below this tolerance
@@ -164,6 +164,35 @@ class ANN:
 		self.X = None
 		self.Y = None
 		self.YH = None
+		
+	#Fit the MLP to the data
+	#A: numpy matrix where each row is a sample
+	#Y: numpy matrix of target values
+	def fit(self, A, Y):
+		m = len(A)
+		#Begin training
+		for i in range(self.mIter):
+			#Batch mode or all at once
+			if self.batSz is None:	#Compute loss and optimize simultaneously
+				err, _ = self.sess.run([self.loss, self.optmzr], feed_dict={self.X:A, self.Y:Y})
+			else:	#Train m samples using random batches of size self.bs
+				err = 0.0
+				for j in range(0, m, self.batSz): #Compute loss and optimize simultaneously
+					bi = np.random.randint(m, size = self.batSz)	#Randomly chosen batch indices
+					l, _ = self.sess.run([self.loss, self.optmzr], feed_dict = {self.X:A[bi], self.Y:Y[bi]})
+					err += l	#Accumulate loss over all batches
+			if self.vrbse:
+				print("Iter {:5d}\t{:.8f}".format(i + 1, err))
+			if err < self.tol or self.stopIter:
+				break	#Stop if tolerance was reached or flag was set
+				
+	#Predict the output given the input (only run after calling fit)
+	#A: The input values for which to predict outputs
+	#return: The predicted output values (one row per input sample)
+	def predict(self, A):
+		if self.sess is None:
+			raise Exception("Error: MLP has not yet been fitted.")
+		return self.sess.run(self.YH, feed_dict={self.X:A})
 
 	#Restores a model that was previously created with SaveModel
 	def RestoreModel(self, p, name):
@@ -198,41 +227,11 @@ class ANN:
 
 #Artificial Neural Network for Regression (Base Class)
 class ANNR(ANN):
-	#Fit the MLP to the data
-	#A: numpy matrix where each row is a sample
-	#Y: numpy matrix of target values
-	def fit(self, A, Y):
-		m = len(A)
-		#Begin training
-		for i in range(self.mIter):
-			#Batch mode or all at once
-			if self.batSz is None:	#Compute loss and optimize simultaneously
-				err, _ = self.sess.run([self.loss, self.optmzr], feed_dict={self.X:A, self.Y:Y})
-			else:	#Train m samples using random batches of size self.bs
-				err = 0.0
-				for j in range(0, m, self.batSz): #Compute loss and optimize simultaneously
-					bi = np.random.randint(m, size = self.batSz)	#Randomly chosen batch indices
-					l, _ = self.sess.run([self.loss, self.optmzr], feed_dict = {self.X:A[bi], self.Y:Y[bi]})
-					err += l	#Accumulate loss over all batches
-			if self.vrbse:
-				print("Iter {:5d}\t{:.8f}".format(i + 1, err))
-			if err < self.tol or self.stopIter:
-				break	#Stop if tolerance was reached or flag was set
-
 	#Common arguments for all artificial neural network regression models
 	def __init__(self, actvFn = 'relu', batchSize = None, learnRate = 1e-4, maxIter = 1000,
 				 optmzr = 'adam', reg = None, tol = 1e-1, verbose = False):
 		#Initialize fields from base class
 		super().__init__(actvFn, batchSize, learnRate, maxIter, optmzr, reg, tol, verbose)
-
-	#Predict the output given the input (only run after calling fit)
-	#A: The input values for which to predict outputs
-	#return: The predicted output values (one row per input sample)
-	def predict(self, A):
-		if self.sess is None:
-			print("Error: MLP has not yet been fitted.")
-			return None
-		return self.sess.run(self.YH, feed_dict={self.X:A})
 
 	#Predicts the ouputs for input A and then computes the RMSE between
 	#The predicted values and the actualy values
@@ -321,39 +320,26 @@ class MLPB(MLPR):
 		#Transform back to un-scaled data
 		return self.YHatF(self.TInvX(YH))
 
+	#Convert from prediction (YH) to original data type (integer 0 or 1)
 	def YHatF(self, Y):
 		return Y.clip(0.0, 1.0).round().astype(np.int)
 
+	#Map from {0, 1} -> {-0.9, .9} (for tanh activation)
 	def Tx(self, Y):
 		return (2 * Y - 1) * 0.9
-
+	
+	#Map from {-0.9, .9} -> {0, 1}
 	def TInvX(self, Y):
 		return (Y / 0.9 + 1) / 2.0
 
 #Artificial Neural Network for Classification (Base Class)
 class ANNC(ANN):
-
 	#Fit the MLP to the data
 	#A: numpy matrix where each row is a sample
 	#y: numpy matrix of target values
 	def fit(self, A, Y):
-		m = len(A)
 		Y = self.To1Hot(Y)
-		#Begin training
-		for i in range(self.mIter):
-			#Batch mode or all at once
-			if self.batSz is None:	#Compute loss and optimize simultaneously
-				err, _ = self.sess.run([self.loss, self.optmzr], feed_dict={self.X:A, self.Y:Y})
-			else:	#Train m samples using random batches of size self.bs
-				err = 0.0
-				for j in range(0, m, self.batSz): #Compute loss and optimize simultaneously
-					bi = np.random.randint(m, size = self.batSz)	#Randomly chosen batch indices
-					l, _ = self.sess.run([self.loss, self.optmzr], feed_dict = {self.X:A[bi], self.Y:Y[bi]})
-					err += l	#Accumulate loss over all batches
-			if self.vrbse:
-				print("Iter {:5d}\t{:.8f}".format(i + 1, err))
-			if err < self.tol or self.stopIter:
-				break	#Stop if tolerance was reached or flag was set
+		super().fit(A, Y)
 
 	def __init__(self, actvFn = 'tanh', batchSize = None, learnRate = 1e-3, maxIter = 2000,
 				 optmzr = 'adam', reg = 1e-3, tol = 1e-2, verbose = False):
@@ -365,11 +351,8 @@ class ANNC(ANN):
 	#A: The input values for which to predict outputs
 	#return: The predicted output values (one row per input sample)
 	def predict(self, A):
-		if self.sess is None:
-			print("Error: MLPC has not yet been fitted.")
-			return None
 		#Get the predicted indices
-		res = np.argmax(self.sess.run(self.YH, feed_dict={self.X:A}), 1)
+		res = np.argmax(super().predict(A), 1)
 		res.shape = [-1]
 		#Return prediction using the original labels
 		return np.array([self._classes[i] for i in res])
@@ -387,12 +370,11 @@ class ANNC(ANN):
 		YH = self.predict(A)
 		return _Accuracy(Y, YH)
 
-	#Creates an array of 1-hot vectors
-	#based on a vector of class labels
+	#Creates an array of 1-hot vectors based on a vector of class labels
 	#y: The vector of class labels
 	#return: The 1-Hot encoding of y
 	def To1Hot(self, Y):
-		self._classes = sorted(list(set(list(Y))))
+		self._classes = sorted(list(set(list(Y))))		#Reform class labels
 		lblDic = {}
 		for i, ci in enumerate(self._classes):
 			lblDic[ci] = i
@@ -403,7 +385,6 @@ class ANNC(ANN):
 
 #Convolutional Neural Network for Classification
 class CNNC(ANNC):
-
 	#imageSize:	 Size of the images used (Height, Width, Depth)
 	#ws:			Weight matrix sizes
 	def __init__(self, imageSize, ws, actvFn = 'relu', batchSize = None, learnRate = 1e-4, maxIter = 1000,
@@ -431,7 +412,7 @@ class CNNC(ANNC):
 
 #Multi-Layer Perceptron for Classification
 class MLPC(ANNC):
-
+	#layers: A list of layer sizes
 	def __init__(self, layers, actvFn = 'tanh', batchSize = None, learnRate = 1e-3, maxIter = 2000,
 				 optmzr = 'adam', reg = 1e-3, tol = 1e-2, verbose = False):
 		super().__init__(actvFn, batchSize, learnRate, maxIter, optmzr, reg, tol, verbose)

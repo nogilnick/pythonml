@@ -14,8 +14,8 @@ def GenerateData(nf = 256, ns = 16384):
 		A = np.loadtxt('bdatA.csv', delimiter = ',')
 		Y = np.loadtxt('bdatY.csv', delimiter = ',').reshape(-1, 1)
 	except OSError:		#New data needs to be generated
-		x = np.linspace(-1, 1, num = ns)
-		A = np.concatenate([x] * nf).reshape(ns, -1)
+		x = np.linspace(-1, 1, num = ns).reshape(-1, 1)
+		A = np.concatenate([x] * nf, axis = 1)
 		Y = ((np.sum(A, axis = 1) / nf) ** 2).reshape(-1, 1)
 		A = (A + np.random.rand(ns, nf)) / (2.0)
 		np.savetxt('bdatA.csv', A, delimiter = ',')
