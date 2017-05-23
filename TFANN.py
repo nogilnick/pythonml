@@ -180,17 +180,16 @@ class ANN:
 		Y: numpy matrix of target values
 		'''
 		m = len(A)
-		#Begin training
-		for i in range(self.mIter):
-			#Batch mode or all at once
-			if self.batSz is None:	#Compute loss and optimize simultaneously
+		for i in range(self.mIter):							#Loop up to mIter times
+			if self.batSz is None:							#Compute loss and optimize simultaneously for all samples
 				err, _ = self.sess.run([self.loss, self.optmzr], feed_dict={self.X:A, self.Y:Y})
-			else:	#Train m samples using random batches of size self.bs
+			else:											#Train m samples using random batches of size self.bs
 				err = 0.0
-				for j in range(0, m, self.batSz): #Compute loss and optimize simultaneously
+				for j in range(0, m, self.batSz): 			#Compute loss and optimize simultaneously for batch
 					bi = np.random.randint(m, size = self.batSz)	#Randomly chosen batch indices
 					l, _ = self.sess.run([self.loss, self.optmzr], feed_dict = {self.X:A[bi], self.Y:Y[bi]})
-					err += l	#Accumulate loss over all batches
+					err += l								#Accumulate loss over all batches
+				err /= len(range(0, m, self.batSz))			#Average over all batches
 			if self.vrbse:
 				print("Iter {:5d}\t{:.8f}".format(i + 1, err))
 			if err < self.tol or self.stopIter:
@@ -204,7 +203,7 @@ class ANN:
 		'''
 		if self.sess is None:
 			raise Exception("Error: MLP has not yet been fitted.")
-		return self.sess.run(self.YH, feed_dict={self.X:A})
+		return self.sess.run(self.YH, feed_dict = {self.X:A})
 
 	def RestoreModel(self, p, name):
 		'''
@@ -287,24 +286,17 @@ class CNNR(ANNR):
 		'''
 		#Initialize fields from base class
 		super().__init__(actvFn, batchSize, learnRate, maxIter, optmzr, reg, tol, verbose)
-		#Input placeholder
 		self.imgSize = list(imageSize)
-		self.X = tf.placeholder("float", [None] + self.imgSize)
-		#Padding method to use
-		self.pad = pad
-		#Target vector placeholder; final layer should be a fully connected layer
-		self.Y = tf.placeholder("float", [None, ws[-1][1]])
-		#Create neural network graph and keep track of output variable
-		self.YH = self._CreateCNN(ws)
-		#l2_loss of t is sum(t**2)/2
-		self.loss = tf.reduce_sum(tf.nn.l2_loss(self.YH - self.Y))
-		#Use regularization to prevent over-fitting
-		self.reg = reg
+		self.X = tf.placeholder("float", [None] + self.imgSize)			#Input data matrices (batch of RGB images)
+		self.pad = pad													#Padding method to use
+		self.Y = tf.placeholder("float", [None, ws[-1][1]])				#Target value placeholder
+		self.YH = self._CreateCNN(ws)									#Create graph; YH is output from feedforward
+		self.loss = tf.reduce_mean(tf.nn.l2_loss(self.YH - self.Y))		#l2_loss of t is sum(t**2)/2
+		self.reg = reg													#Regularization can prevent over-fitting
 		if reg is not None:
 			self.loss += _CreateL2Reg(self.W, self.B) * reg
 		self.optmzr = _GetOptimizer(optmzr, learnRate).minimize(self.loss)
-		#Begin the TensorFlow Session
-		self.RunSession()
+		self.RunSession()												#Begin the TensorFlow Session
 
 class MLPR(ANNR):
 	'''
@@ -318,10 +310,10 @@ class MLPR(ANNR):
 		'''
 		super().__init__(actvFn, batchSize, learnRate, maxIter, optmzr, reg, tol, verbose)
 		self.X = tf.placeholder("float", [None, layers[0]])			#Input data matrix
-		self.Y = tf.placeholder("float", [None, layers[-1]])		#Output matrix
+		self.Y = tf.placeholder("float", [None, layers[-1]])		#Target value matrix
 		weight, bias = _CreateVars(layers)							#Setup the weight and bias variables
-		self.YH = _CreateMLP(self.X, weight, bias, self.AF)			#Create the tensorflow MLP model
-		self.loss = tf.reduce_sum(tf.nn.l2_loss(self.YH - self.Y))	#l2_loss of t is sum(t**2)/2
+		self.YH = _CreateMLP(self.X, weight, bias, self.AF)			#Create the tensorflow MLP model; YH is graph output
+		self.loss = tf.reduce_mean(tf.nn.l2_loss(self.YH - self.Y))	#l2_loss of t is sum(t**2)/2
 		if reg is not None:											#Regularization can prevent over-fitting
 			self.loss += _CreateL2Reg(weight, bias) * reg
 		self.optmzr = _GetOptimizer(optmzr, learnRate).minimize(self.loss)	#Get optimizer method to minimize the loss function
@@ -457,24 +449,18 @@ class CNNC(ANNC):
 		'''
 		#Initialize fields from base class
 		super().__init__(actvFn, batchSize, learnRate, maxIter, optmzr, reg, tol, verbose)
-		#Input placeholder
 		self.imgSize = list(imageSize)
-		self.X = tf.placeholder("float", [None] + self.imgSize)
-		#Padding method to use
-		self.pad = pad
-		#Target vector placeholder; final layer should be a fully connected layer
-		self.Y = tf.placeholder("float", [None, ws[-1][1]])
-		#Create neural network graph and keep track of output variable
-		self.YH = self._CreateCNN(ws)
+		self.X = tf.placeholder("float", [None] + self.imgSize)			#Input data matrix of samples
+		self.pad = pad													#Padding method to use
+		self.Y = tf.placeholder("float", [None, ws[-1][1]])				#Target matrix
+		self.YH = self._CreateCNN(ws)									#Create graph; YH is output matrix
 		#Loss term
-		self.loss = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(logits = self.YH, labels = self.Y))
-		#Use regularization to prevent over-fitting
+		self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits = self.YH, labels = self.Y))
 		self.reg = reg
-		if reg is not None:
+		if reg is not None:												#Regularization can prevent over-fitting
 			self.loss += _CreateL2Reg(self.W, self.B) * reg
 		self.optmzr = _GetOptimizer(optmzr, learnRate).minimize(self.loss)
-		#Begin the TensorFlow Session
-		self.RunSession()
+		self.RunSession()												#Begin the TensorFlow Session
 
 class MLPC(ANNC):
 	'''
@@ -488,11 +474,11 @@ class MLPC(ANNC):
 		'''
 		super().__init__(actvFn, batchSize, learnRate, maxIter, optmzr, reg, tol, verbose)
 		self.X = tf.placeholder("float", [None, layers[0]])		#Input data matrix
-		self.Y = tf.placeholder("float", [None, layers[-1]])	#Output matrix
+		self.Y = tf.placeholder("float", [None, layers[-1]])	#Target matrix
 		weight, bias = _CreateVars(layers)						#Setup the weight and bias variables
-		self.YH = _CreateMLP(self.X, weight, bias, self.AF)		#Create the tensorflow model
+		self.YH = _CreateMLP(self.X, weight, bias, self.AF)		#Create the tensorflow model; YH is output matrix
 		#Cross entropy loss function
-		self.loss = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(logits = self.YH, labels = self.Y))
+		self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits = self.YH, labels = self.Y))
 		if reg is not None:										#Regularization can prevent over-fitting
 			self.loss += _CreateL2Reg(weight, bias) * reg
 		self.optmzr = _GetOptimizer(optmzr, learnRate).minimize(self.loss)
