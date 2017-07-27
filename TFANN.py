@@ -1,7 +1,9 @@
-#TFANN.py
-#This file contains classes implementing ANN using numpy 
-#and tensorflow. Presently, multi-layer perceptron (MLP) 
-#and convolutional neural networks (CNN) are supported.
+'''
+TFANN.py
+This file contains classes implementing ANN using numpy 
+and tensorflow. Presently, multi-layer perceptron (MLP) 
+and convolutional neural networks (CNN) are supported.
+'''
 import tensorflow as tf
 import numpy as np
 
@@ -14,8 +16,7 @@ def _Accuracy(Y, YH):
     yHat: The predicted labels
     return: The percentage correct
     '''
-    n = float(len(Y))
-    return np.sum(Y == YH) / n
+    return np.mean(Y == YH)
 
 def _CreateMLP(_X, _W, _B, _AF):
     '''
@@ -29,6 +30,21 @@ def _CreateMLP(_X, _W, _B, _AF):
     for i in range(n - 1):
         _X = _AF(tf.matmul(_X, _W[i]) + _B[i])
     return tf.matmul(_X, _W[n - 1]) + _B[n - 1]
+
+def _CreateRFSMLP(_X, _W, _B, _AF):
+    '''
+    Create the RFSMLP variables for TF graph
+    _X: The input matrix
+    _W: The weight matrices
+    _B: The bias vectors
+    _AF: The activation function
+    '''
+    X = [_X]
+    n = len(_W)
+    for i in range(n - 1):
+        X.append(_AF(tf.matmul(X[-1], _W[i]) + _B[i]))
+    X.append(tf.matmul(X[-1], _W[n - 1]) + _B[n - 1])
+    return tf.stack(X, axis = 1)
 
 def _CreateL2Reg(_W, _B):
     '''
@@ -103,8 +119,6 @@ def _GetLossFn(name):
     elif name == 'hinge':
         return lambda YH, Y : tf.losses.hinge_loss(Y, YH)
     return None
-        
-    
 
 def _GetOptimizer(name, lr):
     '''
@@ -124,6 +138,8 @@ def _GetOptimizer(name, lr):
     return None
 
 class ANN:
+    sess = None     #Class variable shared among all instances
+    sessc = 0       #Number of active sessions
     '''
     TensorFlow Artificial Neural Network (Base Class)
     '''
@@ -163,18 +179,22 @@ class ANN:
 
     #Clean-up resources
     def __del__(self):
-        self.sess.close()
+        ANN.sessc -= 1          #Decrement session counter
+        if ANN.sessc == 0:      #Close session only if not in use
+            self.GetSes().close()
+            ANN.sess = None
 
     def __init__(self, actvFn = 'relu', batchSize = None, learnRate = 1e-4, loss = 'l2', maxIter = 1024,
-                     optmzr = 'adam', reg = None, tol = 1e-1, verbose = False):
+                 name = 'tfann', optmzrn = 'adam', reg = None, tol = 1e-1, verbose = False):
         '''
         Common arguments for all artificial neural network regression models
         actvFn: The activation function to use: 'tanh', 'sig', or 'relu'
         batchSize: Size of training batches to use (use all if None)
         learnRate: The learning rate parameter for the optimizer
         loss:   The name of the loss function (l2, l1, smce, sgme, cos, log, hinge) 
+        name:   The name of the model for variable scope, saving, and restoring
         maxIter: Maximum number of training iterations
-        optmzr: The optimizer method to use ('adam', 'grad', 'adagrad', or 'ftrl')
+        optmzrn: The optimizer method to use ('adam', 'grad', 'adagrad', or 'ftrl')
         reg: Weight of the regularization term (None for no regularization)
         tol: Training ends if error falls below this tolerance
         verbose: Print training information
@@ -184,7 +204,8 @@ class ANN:
         self.batSz = batchSize                      #Batch size
         self.lr = learnRate                         #Learning rate
         self.mIter = maxIter                        #Maximum number of iterations
-        self.opt = optmzr                           #Optimizer method
+        self.name = name                            #Name of model for variable scope
+        self.optmzrn = optmzrn                      #Optimizer method name
         self.reg = reg                              #Regularization strength
         self.stopIter = False                       #Flag for stopping training early
         self.tol = tol                              #Error tolerance
@@ -193,10 +214,21 @@ class ANN:
         #Data members to be populated in a subclass
         self.loss = None
         self.optmzr = None
-        self.sess = None
         self.X = None
         self.Y = None
         self.YH = None
+        self.TFVar = None
+        with tf.variable_scope(self.name):
+            self.TFVar = set(tf.global_variables())                 #All variables before model
+            self.CreateModel()                                      #Populate TensorFlow graph
+            self.TFVar = set(tf.global_variables()) - self.TFVar    #Only variables in this model
+            self.Initialize()                                       #Start TF session and initialize vars 
+            
+    def CreateModel(self):
+        '''
+        Creates the acutal model (implemented in subclasses)
+        '''
+        pass
         
     def fit(self, A, Y):
         '''
@@ -207,12 +239,12 @@ class ANN:
         m = len(A)
         for i in range(self.mIter):                         #Loop up to mIter times
             if self.batSz is None:                          #Compute loss and optimize simultaneously for all samples
-                err, _ = self.sess.run([self.loss, self.optmzr], feed_dict={self.X:A, self.Y:Y})
+                err, _ = self.GetSes().run([self.loss, self.optmzr], feed_dict={self.X:A, self.Y:Y})
             else:                                           #Train m samples using random batches of size self.bs
                 err = 0.0
                 for j in range(0, m, self.batSz):                   #Compute loss and optimize simultaneously for batch
                     bi = np.random.randint(m, size = self.batSz)    #Randomly chosen batch indices
-                    l, _ = self.sess.run([self.loss, self.optmzr], feed_dict = {self.X:A[bi], self.Y:Y[bi]})
+                    l, _ = self.GetSes().run([self.loss, self.optmzr], feed_dict = {self.X:A[bi], self.Y:Y[bi]})
                     err += l                                        #Accumulate loss over all batches
                 err /= len(range(0, m, self.batSz))                 #Average over all batches
             if self.vrbse:
@@ -224,55 +256,68 @@ class ANN:
         '''
         Gets the i-th bias vector from the model
         '''
-        return self.B[i].eval(session = self.sess)
+        return self.B[i].eval(session = self.GetSes())
+                
+    def GetSes(self):
+        if ANN.sess is None:
+            config = tf.ConfigProto()
+            config.gpu_options.allow_growth = True      #Only use GPU memory as needed
+            ANN.sess = tf.Session(config = config)      #instead of allocating all up-front
+        return ANN.sess
                 
     def GetWeightMatrix(self, i):
         '''
         Gets the i-th weight matrix from the model
         '''
-        return self.W[i].eval(session = self.sess)
-                
+        return self.W[i].eval(session = self.GetSes())
+
+    def Initialize(self):
+        '''
+        Initialize variables and start the TensorFlow session
+        '''
+        self.saver = tf.train.Saver()               #For saving a model for later restoration
+        ANN.sessc += 1                              #Increment session counter
+        sess = self.GetSes()
+        init = tf.variables_initializer(self.TFVar)
+        sess.run(init)                              #Initialize all variables for this model
+        
     def predict(self, A):
         '''
         Predict the output given the input (only run after calling fit)
         A: The input values for which to predict outputs
         return: The predicted output values (one row per input sample)
         '''
-        if self.sess is None:
-            raise Exception("Error: MLP has not yet been fitted.")
-        return self.sess.run(self.YH, feed_dict = {self.X:A})
+        return self.GetSes().run(self.YH, feed_dict = {self.X:A})
 
-    def RestoreModel(self, p, name):
+    def Reset():
+        '''
+        Performs a hard reset of the tensorflow graph and session
+        '''
+        ANN.sessc = 0
+        if ANN.sess is not None:
+            ANN.sess.close()
+        ANN.sess = None
+        tf.reset_default_graph()
+        
+    def RestoreModel(self, p, n):
         '''
         Restores a model that was previously created with SaveModel
-        p:      Path to model containing files
-        name:   Name of model to restore
+        p:      Path to model containing files like "path/"
         '''
         try:
-            sav = tf.train.import_meta_graph(p + name + '.meta')
-            sav.restore(self.sess, tf.train.latest_checkpoint(p))
-        except OSError:
+            sav = tf.train.import_meta_graph(p + n + '.meta')
+            sav.restore(self.GetSes(), tf.train.latest_checkpoint(p))
+        except OSError as ose:
+            print('Error Restoring: ' + str(ose))
             return False
         return True
 
-    def RunSession(self):
+    def SaveModel(self, p):
         '''
-        Start the TensorFlow session
+        Save model to file
+        p:  Path to save file like "path/"
         '''
-        self.saver = tf.train.Saver()               #For saving a model for later restoration
-        config = tf.ConfigProto()
-        config.gpu_options.allow_growth = True      #Tell TensorFlow to use GPU memory as needed
-        self.sess = tf.Session(config = config)     #instead of allocating all up-front
-        init = tf.global_variables_initializer()        
-        self.sess.run(init)                         #Initialize all variables on the TF session
-
-    def SaveModel(self, name):
-        '''
-        Save model to file; the format should be like "path/prefixname"
-        If using the current directory "./prefixname" may need to be used instead
-        of simply "prefixname"
-        '''
-        self.saver.save(self.sess, name)
+        self.saver.save(self.GetSes(), p)
 
     def SetMaxIter(self, mi):
         '''
@@ -285,20 +330,30 @@ class ANN:
         Set the flag for stopping iteration early
         '''
         self.stopIter = si
+        
+    def Tx(self, Y):
+        '''
+        Map from {0, 1} -> {-0.9, .9} (for tanh activation)
+        '''
+        return (2 * Y - 1) * 0.9
+    
+    def TInvX(self, Y):
+        '''
+        Map from {-0.9, .9} -> {0, 1}
+        '''
+        return (Y / 0.9 + 1) / 2.0
+    
+    def YHatF(self, Y):
+        '''
+        Convert from prediction (YH) to original data type (integer 0 or 1)
+        '''
+        return Y.clip(0.0, 1.0).round().astype(np.int)
 
 class ANNR(ANN):
     '''
     Artificial Neural Network for Regression (Base Class)
     '''
-    
-    def __init__(self, actvFn = 'relu', batchSize = None, learnRate = 1e-4, loss = 'l2', 
-              maxIter = 1024, optmzr = 'adam', reg = None, tol = 1e-1, verbose = False):
-        '''
-        Constructor with common argument for all artificial neural network regression models
-        '''
-        #Initialize fields from base class
-        super().__init__(actvFn, batchSize, learnRate, loss, maxIter, optmzr, reg, tol, verbose)
-
+   
     def score(self, A, Y):
         '''
         Predicts the ouputs for input A and then computes the RMSE between
@@ -307,66 +362,61 @@ class ANNR(ANN):
         Y: The actual target values
         return: The RMSE
         '''
-        return np.sqrt(self.sess.run(self.loss, feed_dict = {self.X:A, self.Y:Y}) * 2.0) / len(A)
+        return np.sqrt(self.GetSes().run(self.loss, feed_dict = {self.X:A, self.Y:Y}) * 2.0) / len(A)
 
 class CNNR(ANNR):
     '''
     Convolutional Neural Network for Regression
     '''
     
-    def __init__(self, imageSize, ws, actvFn = 'relu', batchSize = None, learnRate = 1e-4, loss = 'l2',
-               maxIter = 1024, optmzr = 'adam', pad = 'SAME', tol = 1e-1, reg = None, verbose = False):
+    def __init__(self, imageSize, ws, actvFn = 'relu', batchSize = None, learnRate = 1e-4, loss = 'l2', maxIter = 1024, 
+                 name = 'tfann', optmzrn = 'adam', pad = 'SAME', tol = 1e-1, reg = None, verbose = False):
         '''
         imageSize:  Size of the images used (Height, Width, Depth)
         ws:         Weight matrix sizes
         '''
-        #Initialize fields from base class
-        super().__init__(actvFn, batchSize, learnRate, loss, maxIter, optmzr, reg, tol, verbose)
-        self.imgSize = list(imageSize)
-        self.X = tf.placeholder("float", [None] + self.imgSize)         #Input data matrices (batch of RGB images)
+        self.imgSize = list(imageSize)      #Image size for CNN
+        self.ws = ws                        #Add data member so CreateModel can access
         self.pad = pad                                                  #Padding method to use
-        self.Y = tf.placeholder("float", [None, ws[-1][1]])             #Target value placeholder
-        self.YH = self._CreateCNN(ws)                                   #Create graph; YH is output from feedforward
+        super().__init__(actvFn, batchSize, learnRate, loss, maxIter, name, optmzrn, reg, tol, verbose)
+        
+    def CreateModel(self):
+        self.X = tf.placeholder("float", [None] + self.imgSize)         #Input data matrices (batch of RGB images)
+        self.Y = tf.placeholder("float", [None, self.ws[-1][1]])        #Target value placeholder
+        self.YH = self._CreateCNN(self.ws)                              #Create graph; YH is output from feedforward
         self.loss = tf.reduce_mean(self.LF(self.YH, self.Y))            
-        self.reg = reg                                                  #Regularization can prevent over-fitting
-        if reg is not None:
-            self.loss += _CreateL2Reg(self.W, self.B) * reg
-        self.optmzr = _GetOptimizer(optmzr, learnRate).minimize(self.loss)
-        self.RunSession()                                               #Begin the TensorFlow Session
+        if self.reg is not None:                                        #Regularization can prevent over-fitting
+            self.loss += _CreateL2Reg(self.W, self.B) * self.reg
+        self.optmzr = _GetOptimizer(self.optmzrn, self.lr).minimize(self.loss)
 
 class MLPR(ANNR):
     '''
     Multi-Layer Perceptron for Regression
     '''
     
-    def __init__(self, layers, actvFn = 'tanh', batchSize = None, learnRate = 1e-3, loss = 'l2',
-                 maxIter = 1024, optmzr = 'adam',  reg = 1e-3, tol = 1e-2, verbose = False):
+    def __init__(self, layers, actvFn = 'tanh', batchSize = None, learnRate = 1e-3, loss = 'l2', maxIter = 1024, 
+                 name = 'tfann', optmzrn = 'adam',  reg = 1e-3, tol = 1e-2, verbose = False):
         '''
         layers: A list of layer sizes
         '''
-        super().__init__(actvFn, batchSize, learnRate, loss, maxIter, optmzr, reg, tol, verbose)
-        self.X = tf.placeholder("float", [None, layers[0]])                 #Input data matrix
-        self.Y = tf.placeholder("float", [None, layers[-1]])                #Target value matrix
-        self.W, self.B = _CreateVars(layers)                                #Setup the weight and bias variables
+        self.layers = layers
+        super().__init__(actvFn, batchSize, learnRate, loss, maxIter, name, optmzrn, reg, tol, verbose)
+
+    def CreateModel(self):
+        self.X = tf.placeholder("float", [None, self.layers[0]])            #Input data matrix
+        self.Y = tf.placeholder("float", [None, self.layers[-1]])           #Target value matrix
+        self.W, self.B = _CreateVars(self.layers)                           #Setup the weight and bias variables
         self.YH = _CreateMLP(self.X, self.W, self.B, self.AF)               #Create the tensorflow MLP model; YH is graph output
         self.loss = tf.reduce_mean(self.LF(self.YH, self.Y))                
-        if reg is not None:                                                 #Regularization can prevent over-fitting
-            self.loss += _CreateL2Reg(self.W, self.B) * reg
-        self.optmzr = _GetOptimizer(optmzr, learnRate).minimize(self.loss)  #Get optimizer method to minimize the loss function
-        self.RunSession()                                                   #Start TF session               
-
+        if self.reg is not None:                                            #Regularization can prevent over-fitting
+            self.loss += _CreateL2Reg(self.W, self.B) * self.reg
+        self.optmzr = _GetOptimizer(self.optmzrn, self.lr).minimize(self.loss)  #Get optimizer method to minimize the loss function    
+   
 class MLPB(MLPR):
     '''
     Multi-Layer Perceptron for Binary Data
     '''
     
-    def __init__(self, layers, actvFn = 'tanh', batchSize = None, learnRate = 1e-3, loss = 'l2',
-                 maxIter = 1024, optmzr = 'adam', reg = 1e-3, tol = 1e-2, verbose = False):
-        '''
-        layers: A list of layer sizes
-        '''
-        super().__init__(layers, actvFn, batchSize, learnRate, loss, maxIter, optmzr, reg, tol, verbose)
-
     def fit(self, A, Y):
         '''
         Fit the MLP to the data
@@ -383,31 +433,63 @@ class MLPB(MLPR):
         A: The input values for which to predict outputs
         return: The predicted output values (one row per input sample)
         '''
-        if self.sess == None:
-            print("Error: MLPC has not yet been fitted.")
-            return None
         A = self.Tx(A)
         YH = super().predict(A)
         #Transform back to un-scaled data
         return self.YHatF(self.TInvX(YH))
-
-    def YHatF(self, Y):
-        '''
-        Convert from prediction (YH) to original data type (integer 0 or 1)
-        '''
-        return Y.clip(0.0, 1.0).round().astype(np.int)
-
-    def Tx(self, Y):
-        '''
-        Map from {0, 1} -> {-0.9, .9} (for tanh activation)
-        '''
-        return (2 * Y - 1) * 0.9
     
-    def TInvX(self, Y):
+class RFSMLPB(ANNR):
+    '''
+    Rectangular Fully-Supervised Multi-Layer Perceptron for Binary Data (experimental)
+    '''
+    
+    def __init__(self, layers, actvFn = 'tanh', batchSize = None, learnRate = 1e-3, loss = 'l2', maxIter = 1024, 
+                 name = 'tfann', optmzrn = 'adam',  reg = 1e-3, tol = 1e-2, verbose = False):
         '''
-        Map from {-0.9, .9} -> {0, 1}
+        layers: A list of layer sizes
         '''
-        return (Y / 0.9 + 1) / 2.0
+        self.layers = layers
+        super().__init__(actvFn, batchSize, learnRate, loss, maxIter, name, optmzrn, reg, tol, verbose)
+
+    def CreateModel(self):
+        ls = self.layers[0]
+        nl = len(self.layers)
+        self.X = tf.placeholder("float", [None, ls])                        #Input data matrix
+        self.Y = tf.placeholder("float", [None, nl, ls])                    #Target value matrix
+        self.W, self.B = _CreateVars(self.layers)                           #Setup the weight and bias variables
+        self.YH = _CreateRFSMLP(self.X, self.W, self.B, self.AF)            #Create the tensorflow MLP model; YH is graph output
+        self.loss = tf.reduce_mean(self.LF(self.YH, self.Y))                
+        if self.reg is not None:                                            #Regularization can prevent over-fitting
+            self.loss += _CreateL2Reg(self.W, self.B) * self.reg
+        self.optmzr = _GetOptimizer(self.optmzrn, self.lr).minimize(self.loss)  #Get optimizer method to minimize the loss function
+         
+    def fit(self, A, Y):
+        '''
+        Fit the MLP to the data
+        A: numpy matrix where each row is a sample
+        y: numpy matrix of target values
+        '''
+        A = self.Tx(A)          #Transform data for better performance
+        Y = self.Tx(Y)          #with tanh activation
+        super().fit(A, Y)
+        
+    def predict(self, A):
+        '''
+        Predict the output given the input (only run after calling fit)
+        A: The input values for which to predict outputs
+        return: The predicted output values (one row per input sample)
+        '''
+        A = self.Tx(A)
+        YH = super().predict(A)
+        #Last layer is actual output; hidden layers are used for training
+        return self.YHatF(self.TInvX(YH[:, -1]))
+    
+    def score(self, A, Y):
+        '''
+        Compute a loss score given a matrix of samples and a target matrix Y
+        '''
+        YH = self.predict(A)
+        return np.linalg.norm(Y[:, -1] - YH)
 
 class ANNC(ANN):
     '''
@@ -427,15 +509,14 @@ class ANNC(ANN):
         A: numpy matrix where each row is a sample
         y: numpy matrix of target values
         '''
-        self.RestoreClasses(Y)
         Y = self.To1Hot(Y)
         super().fit(A, Y)
 
-    def __init__(self, actvFn = 'tanh', batchSize = None, learnRate = 1e-3, loss = 'smce', 
-               maxIter = 1024, optmzr = 'adam', reg = 1e-3, tol = 1e-2, verbose = False):
-        super().__init__(actvFn, batchSize, learnRate, loss, maxIter, optmzr, reg, tol, verbose)
+    def __init__(self, actvFn = 'tanh', batchSize = None, learnRate = 1e-3, loss = 'smce', maxIter = 1024, 
+                 name = 'tfann', optmzrn = 'adam', reg = 1e-3, tol = 1e-2, verbose = False):
         #Lookup table for class labels
         self._classes = None
+        super().__init__(actvFn, batchSize, learnRate, loss, maxIter, name, optmzrn, reg, tol, verbose)
 
     def predict(self, A):
         '''
@@ -443,17 +524,16 @@ class ANNC(ANN):
         A: The input values for which to predict outputs
         return: The predicted output values (one row per input sample)
         '''
-        res = np.argmax(super().predict(A), 1)          #Get the predicted indices
-        res.shape = [-1]
-        #Return prediction using the original labels
-        return np.array([self._classes[i] for i in res])
+        #Return prediction labels recovered from 1-hot encoding
+        return self._classes[np.argmax(super().predict(A), 1).reshape(-1)]
 
     def RestoreClasses(self, Y):
         '''
-        #Restores the classes lookup table
+        Restores the classes lookup table
+        Y:  An array that contains all the class labels
         '''
-        if self._classes == None:
-            self._classes = sorted(list(set(list(Y))))
+        if self._classes is None:
+            self._classes = np.unique(Y)
 
     def score(self, A, Y):
         '''
@@ -472,12 +552,9 @@ class ANNC(ANN):
         Y: The vector of class labels
         #return: The 1-Hot encoding of Y
         '''
-        lblDic = {}
-        for i, ci in enumerate(self._classes):
-            lblDic[ci] = i
+        self._classes, inv = np.unique(Y, return_inverse = True)
         b = np.zeros([len(Y), len(self._classes)])
-        for i in range(len(Y)):
-            b[i, lblDic[Y[i]]] = 1
+        b[np.arange(b.shape[0]), inv] = 1
         return b
 
 class CNNC(ANNC):
@@ -485,48 +562,50 @@ class CNNC(ANNC):
     Convolutional Neural Network for Classification
     '''
 
-    def __init__(self, imageSize, ws, actvFn = 'relu', batchSize = None, learnRate = 1e-4, loss = 'smce',
-               maxIter = 1024, optmzr = 'adam', pad = 'SAME', tol = 1e-1, reg = None, verbose = False):
+    def __init__(self, imageSize, ws, actvFn = 'relu', batchSize = None, learnRate = 1e-4, loss = 'smce', name = 'tfann',
+                 maxIter = 1024, optmzrn = 'adam', pad = 'SAME', tol = 1e-1, reg = None, verbose = False):
         '''
         imageSize:  Size of the images used (Height, Width, Depth)
         ws:         Weight matrix sizes
         '''
         #Initialize fields from base class
-        super().__init__(actvFn, batchSize, learnRate, loss, maxIter, optmzr, reg, tol, verbose)
         self.imgSize = list(imageSize)
-        self.X = tf.placeholder("float", [None] + self.imgSize)         #Input data matrix of samples
-        self.pad = pad                                                  #Padding method to use
-        self.Y = tf.placeholder("float", [None, ws[-1][1]])             #Target matrix
-        self.YH = self._CreateCNN(ws)                                   #Create graph; YH is output matrix
-        #Loss term
-        self.loss = tf.reduce_mean(self.LF(self.YH, self.Y))
-        self.reg = reg
-        if reg is not None:                                             #Regularization can prevent over-fitting
-            self.loss += _CreateL2Reg(self.W, self.B) * reg
-        self.optmzr = _GetOptimizer(optmzr, learnRate).minimize(self.loss)
-        self.RunSession()                                               #Begin the TensorFlow Session
-
+        self.ws = ws
+        self.pad = pad
+        super().__init__(actvFn, batchSize, learnRate, loss, maxIter, name, optmzrn, reg, tol, verbose)
+        
+    def CreateModel(self):
+        self.X = tf.placeholder("float", [None] + self.imgSize)         #Input data matrix of samples                                                 #Padding method to use
+        self.Y = tf.placeholder("float", [None, self.ws[-1][1]])        #Target matrix
+        self.YH = self._CreateCNN(self.ws)                              #Create graph; YH is output matrix
+        self.loss = tf.reduce_mean(self.LF(self.YH, self.Y))            #Loss term
+        if self.reg is not None:                                        #Regularization can prevent over-fitting
+            self.loss += _CreateL2Reg(self.W, self.B) * self.reg
+        self.optmzr = _GetOptimizer(self.optmzrn, self.lr).minimize(self.loss)
+        
 class MLPC(ANNC):
     '''
     Multi-Layer Perceptron for Classification
     '''
     
-    def __init__(self, layers, actvFn = 'tanh', batchSize = None, learnRate = 1e-3, loss = 'smce',
-               maxIter = 1024, optmzr = 'adam', reg = 1e-3, tol = 1e-2, verbose = False):
+    def __init__(self, layers, actvFn = 'tanh', batchSize = None, learnRate = 1e-3, loss = 'smce', maxIter = 1024,
+                 name = 'tfann', optmzrn = 'adam', reg = 1e-3, tol = 1e-2, verbose = False):
         '''
         layers: A list of layer sizes
         '''
-        super().__init__(actvFn, batchSize, learnRate, loss, maxIter, optmzr, reg, tol, verbose)
-        self.X = tf.placeholder("float", [None, layers[0]])                 #Input data matrix
-        self.Y = tf.placeholder("float", [None, layers[-1]])                #Target matrix
-        self.W, self.B = _CreateVars(layers)                                #Setup the weight and bias variables
+        self.layers = layers
+        super().__init__(actvFn, batchSize, learnRate, loss, maxIter, name, optmzrn, reg, tol, verbose)
+        
+    def CreateModel(self):
+        self.X = tf.placeholder("float", [None, self.layers[0]])            #Input data matrix
+        self.Y = tf.placeholder("float", [None, self.layers[-1]])           #Target matrix
+        self.W, self.B = _CreateVars(self.layers)                           #Setup the weight and bias variables
         self.YH = _CreateMLP(self.X, self.W, self.B, self.AF)               #Create the tensorflow model; YH is output matrix
         #Cross entropy loss function
         self.loss = tf.reduce_mean(self.LF(self.YH, self.Y))
-        if reg is not None:                                                 #Regularization can prevent over-fitting
-            self.loss += _CreateL2Reg(self.W, self.B) * reg
-        self.optmzr = _GetOptimizer(optmzr, learnRate).minimize(self.loss)
-        self.RunSession()                                                   #Start the TF session
+        if self.reg is not None:                                            #Regularization can prevent over-fitting
+            self.loss += _CreateL2Reg(self.W, self.B) * self.reg
+        self.optmzr = _GetOptimizer(self.optmzrn, self.lr).minimize(self.loss)
         
 class MLPMC(ANNC):
     '''
@@ -535,36 +614,37 @@ class MLPMC(ANNC):
     '''
     
     def __init__(self, layers, cl, actvFn = 'tanh', batchSize = None, learnRate = 1e-3, loss = 'smce', 
-                      maxIter = 1024, optmzr = 'adam', reg = None, tol = 1e-1, verbose = False):
+                 maxIter = 1024, name = 'tfann', optmzrn = 'adam', reg = None, tol = 1e-1, verbose = False):
         '''
         layers:     Only specify the input sizes and hidden layers sizes. Output layers are
                     automatically inferred from the cl parameter
         cl:         The lists of possible classes for each column (from left to right)    
         '''
-        #Initialize fields from base class
-        super().__init__(actvFn, batchSize, learnRate, loss, maxIter, optmzr, reg, tol, verbose)
-        self.cl = cl                                                            #List of list of possible classes
-        self.lo = len(cl)                                                       #Total length of output vectors
-        self.X = tf.placeholder("float", [None, layers[0]])                     #Input data matrix
+        self.cl = cl                #List of list of possible classes
+        self.lo = len(cl)           #Total length of output vectors
+        self.layers = layers
+        super().__init__(actvFn, batchSize, learnRate, loss, maxIter, name, optmzrn, reg, tol, verbose)
+
+    def CreateModel(self):
+        self.X = tf.placeholder("float", [None, self.layers[0]])                #Input data matrix
         self.optmzrs, self.losses, self.Ws, self.Bs, self.Ys, self.YHs = [], [], [], [], [], []
         for i in range(self.lo):
-            Y = tf.placeholder("float", [None, len(cl[i])])                     #Target matrix is 1-hot encoding
+            Y = tf.placeholder("float", [None, len(self.cl[i])])                #Target matrix is 1-hot encoding
             self.Ys.append(Y)                                                   #of classes for column i
-            W, B = _CreateVars(layers + [len(cl[i])])                           #Add last layer for 1-hot encoding prediction
+            W, B = _CreateVars(self.layers + [len(self.cl[i])])                 #Add last layer for 1-hot encoding prediction
             self.Ws.append(W)
             self.Bs.append(B)
             YH = _CreateMLP(self.X, W, B, self.AF)                              #Create the tensorflow model; YH is output matrix
             self.YHs.append(YH)
             loss = tf.reduce_mean(self.LF(YH, Y))                               #Reduce mean of the loss function
-            if reg is not None:                                                 #Regularization can prevent over-fitting
-                loss += _CreateL2Reg(W, B) * reg
+            if self.reg is not None:                                            #Regularization can prevent over-fitting
+                loss += _CreateL2Reg(W, B) * self.reg
             self.losses.append(loss)
-            self.optmzrs.append(_GetOptimizer(optmzr, learnRate).minimize(loss))
-        self.RunSession()
-            
+            self.optmzrs.append(_GetOptimizer(self.optmzrn, self.lr).minimize(loss))
+ 
     def fit(self, A, Y):
-        for i in range(self.lo):                #Loop over all classes in output
-            self.loss = self.losses[i]          #Choose loss for model predicting i-th class
+        for i in range(self.lo):                #Loop over all columns in output
+            self.loss = self.losses[i]          #Choose loss for model predicting i-th feature
             self.optmzr = self.optmzrs[i]
             self.Y = self.Ys[i]                 #Choose appropriate Y placeholder
             self.ClearClasses()                 #Setup lookup to encoding 1-hot vectors
@@ -572,11 +652,11 @@ class MLPMC(ANNC):
             super().fit(A, Y[:, i])             #Fit model for i-th column
             
     def predict(self, A):
-        YH = np.zeros((A.shape[0], self.lo), dtype = np.int)
-        for i in range(self.lo):
+        P = []
+        for i in range(self.lo):                #Loop over each column in output
             self.YH = self.YHs[i]               #Choose feedforward variable for this column
-            YH[:, i] = super().predict(A)       #Predict classes for i-th column
-        return YH
+            P.append(super().predict(A))        #Predict classes for i-th column
+        return np.column_stack(P)               #Stack columns together
     
     def score(self, A, Y):
         '''
