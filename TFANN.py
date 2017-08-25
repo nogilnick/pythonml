@@ -289,6 +289,14 @@ class ANN:
         '''
         return self.GetSes().run(self.YH, feed_dict = {self.X:A})
 
+    def Reinitialize(self):
+        '''
+        Reinitialize variables and start the TensorFlow session
+        '''
+        sess = self.GetSes()
+        init = tf.variables_initializer(self.TFVar)
+        sess.run(init)                              #Initialize all variables for this model
+        
     def Reset():
         '''
         Performs a hard reset of the tensorflow graph and session
