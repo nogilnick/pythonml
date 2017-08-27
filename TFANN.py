@@ -202,6 +202,7 @@ class ANN:
         self.AF = _GetActvFn(actvFn)                #Activation function to use
         self.LF = _GetLossFn(loss)                  #Handle to loss function to use
         self.batSz = batchSize                      #Batch size
+        self.init = None                            #Initializer operation
         self.lr = learnRate                         #Learning rate
         self.mIter = maxIter                        #Maximum number of iterations
         self.name = name                            #Name of model for variable scope
@@ -278,8 +279,8 @@ class ANN:
         self.saver = tf.train.Saver()               #For saving a model for later restoration
         ANN.sessc += 1                              #Increment session counter
         sess = self.GetSes()
-        init = tf.variables_initializer(self.TFVar)
-        sess.run(init)                              #Initialize all variables for this model
+        self.init = tf.variables_initializer(self.TFVar)
+        sess.run(self.init)                              #Initialize all variables for this model
         
     def predict(self, A):
         '''
@@ -294,8 +295,7 @@ class ANN:
         Reinitialize variables and start the TensorFlow session
         '''
         sess = self.GetSes()
-        init = tf.variables_initializer(self.TFVar)
-        sess.run(init)                              #Initialize all variables for this model
+        sess.run(self.init) #Re-Initialize all variables for this model
         
     def Reset():
         '''
