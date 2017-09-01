@@ -17,6 +17,43 @@ def _Accuracy(Y, YH):
     return: The percentage correct
     '''
     return np.mean(Y == YH)
+    
+def _CreateCNN(AF, PM, WS, X):
+    '''
+    Sets up the graph for a convolutional neural network from a list of specifications 
+    of the form:
+    [('C', [5, 5, 3, 64], [1, 1, 1, 1]), ('P', [1, 3, 3, 1], [1, 2, 2, 1]),('F', 10),]
+    Where 'C' denotes a covolution layer, 'P' denotes a pooling layer, and 'F' denotes
+    a fully-connected layer.
+    AF:     The activation function
+    pm:     The padding method
+    ws:     The specifications describe above
+    X:      Input tensor
+    '''
+    W, B = [], []
+    YH = X
+    for i, WSi in enumerate(WS):
+        if WSi[0] == 'C':           #Convolutional layer
+            W.append(tf.Variable(tf.truncated_normal(WSi[1], stddev = 5e-2)))
+            B.append(tf.Variable(tf.constant(0.0, shape = [WSi[1][-1]])))
+            YH = tf.nn.conv2d(YH, W[-1], WSi[2], padding = PM)
+            YH = tf.nn.bias_add(YH, B[-1])
+            YH = AF(YH)             #Apply the activation function to the output
+        elif WSi[0] == 'P':         #Pooling layer
+            YH = tf.nn.max_pool(YH, ksize = WSi[1], strides = WSi[2], padding = PM)
+            YH = tf.nn.lrn(YH, 4, bias = 1.0, alpha = 0.001 / 9.0, beta = 0.75)
+        elif WSi[0] == 'F':         #Fully-connected layer
+            yhs = YH.get_shape()    #Flatten volume of previous layer for fully-connected layer
+            lls = 1
+            for i in yhs[1:]:
+                lls *= i.value
+            YH = tf.reshape(YH, [-1, lls])
+            W.append(tf.Variable(tf.truncated_normal([lls, WSi[1]], stddev = 0.04)))
+            B.append(tf.Variable(tf.constant(0.1, shape = [WSi[1]])))
+            YH = tf.matmul(YH, W[-1]) + B[-1]
+            if i + 1 != len(WS):    #Last layer shouldn't apply activation function
+                YH = AF(YH)
+    return YH, W, B
 
 def _CreateMLP(_X, _W, _B, _AF):
     '''
@@ -98,6 +135,16 @@ def _GetActvFn(name):
         return tf.nn.softsign
     return None
     
+def _GetBatchRange(bs, mIter):
+    '''
+    Gives a range from which to choose the batch size
+    '''
+    try:
+        return np.linspace(*bs[0:2], num = mIter).round().astype(np.int)
+    except TypeError:
+        pass
+    return np.repeat(bs, mIter)
+    
 def _GetLossFn(name):
     '''
     Helper function for selecting loss function
@@ -144,39 +191,6 @@ class ANN:
     TensorFlow Artificial Neural Network (Base Class)
     '''
 
-    def _CreateCNN(self, ws):
-        '''
-        Sets up the graph for a convolutional neural network from a list of specifications 
-        of the form:
-        [('C', [5, 5, 3, 64], [1, 1, 1, 1]), ('P', [1, 3, 3, 1], [1, 2, 2, 1]),('F', 10),]
-        Where 'C' denotes a covolution layer, 'P' denotes a pooling layer, and 'F' denotes
-        a fully-connected layer.'''
-        self.W = []
-        self.B = []
-        YH = self.X
-        for i, wsi in enumerate(ws):
-            if wsi[0] == 'C':           #Convolutional layer
-                self.W.append(tf.Variable(tf.truncated_normal(wsi[1], stddev = 5e-2)))
-                self.B.append(tf.Variable(tf.constant(0.0, shape = [wsi[1][-1]])))
-                YH = tf.nn.conv2d(YH, self.W[-1], wsi[2], padding = self.pad)
-                YH = tf.nn.bias_add(YH, self.B[-1])
-                YH = self.AF(YH)        #Apply the activation function to the output
-            elif wsi[0] == 'P':         #Pooling layer
-                YH = tf.nn.max_pool(YH, ksize = wsi[1], strides = wsi[2], padding = self.pad)
-                YH = tf.nn.lrn(YH, 4, bias=1.0, alpha = 0.001 / 9.0, beta = 0.75)
-            elif wsi[0] == 'F':         #Fully-connected layer
-                yhs = YH.get_shape()    #Flatten volume of previous layer for fully-connected layer
-                lls = 1
-                for i in yhs[1:]:
-                    lls *= i.value
-                YH = tf.reshape(YH, [-1, lls])
-                self.W.append(tf.Variable(tf.truncated_normal([lls, wsi[1]], stddev = 0.04)))
-                self.B.append(tf.Variable(tf.constant(0.1, shape = [wsi[1]])))
-                YH = tf.matmul(YH, self.W[-1]) + self.B[-1]
-                if i + 1 != len(ws):    #Last layer shouldn't apply activation function
-                    YH = self.AF(YH)
-        return YH
-
     #Clean-up resources
     def __del__(self):
         ANN.sessc -= 1          #Decrement session counter
@@ -185,19 +199,22 @@ class ANN:
             ANN.sess = None
 
     def __init__(self, actvFn = 'relu', batchSize = None, learnRate = 1e-4, loss = 'l2', maxIter = 1024,
-                 name = 'tfann', optmzrn = 'adam', reg = None, tol = 1e-1, verbose = False):
+                 name = 'tfann', optmzrn = 'adam', reg = None, tol = 1e-1, verbose = False, X = None, Y = None):
         '''
         Common arguments for all artificial neural network regression models
-        actvFn: The activation function to use: 'tanh', 'sig', or 'relu'
-        batchSize: Size of training batches to use (use all if None)
-        learnRate: The learning rate parameter for the optimizer
-        loss:   The name of the loss function (l2, l1, smce, sgme, cos, log, hinge) 
-        name:   The name of the model for variable scope, saving, and restoring
-        maxIter: Maximum number of training iterations
-        optmzrn: The optimizer method to use ('adam', 'grad', 'adagrad', or 'ftrl')
-        reg: Weight of the regularization term (None for no regularization)
-        tol: Training ends if error falls below this tolerance
-        verbose: Print training information
+        actvFn:     The activation function to use: 'tanh', 'sig', or 'relu'
+        batchSize:  Size of training batches to use (use all if None)
+        learnRate:  The learning rate parameter for the optimizer
+        loss:       The name of the loss function (l2, l1, smce, sgme, cos, log, hinge) 
+        name:       The name of the model for variable scope, saving, and restoring
+        maxIter:    Maximum number of training iterations
+        optmzrn:    The optimizer method to use ('adam', 'grad', 'adagrad', or 'ftrl')
+        reg:        Weight of the regularization term (None for no regularization)
+        tol:        Training ends if error falls below this tolerance
+        verbose:    Print training information
+        X:          Tensor that is used as input to model; if None a new
+                    placeholder is created and used. If specified a feed_dict
+                    must be passed to train, predict, and score calls!
         '''
         self.AF = _GetActvFn(actvFn)                #Activation function to use
         self.LF = _GetLossFn(loss)                  #Handle to loss function to use
@@ -211,12 +228,11 @@ class ANN:
         self.stopIter = False                       #Flag for stopping training early
         self.tol = tol                              #Error tolerance
         self.vrbse = verbose                        #Verbose output
-        self.saver = None
+        self.X = X                                  #TF Variable used as input to model
+        self.Y = Y                                  #TF Variable used as target for model
         #Data members to be populated in a subclass
         self.loss = None
         self.optmzr = None
-        self.X = None
-        self.Y = None
         self.YH = None
         self.TFVar = None
         with tf.variable_scope(self.name):
@@ -231,30 +247,34 @@ class ANN:
         '''
         pass
         
-    def fit(self, A, Y):
+    def fit(self, A, Y, FD = None):
         '''
         Fit the ANN to the data
         A: numpy matrix where each row is a sample
         Y: numpy matrix of target values
         '''
         m = len(A)
-        for i in range(self.mIter):                         #Loop up to mIter times
-            if self.batSz is None:                          #Compute loss and optimize simultaneously for all samples
-                err, _ = self.GetSes().run([self.loss, self.optmzr], feed_dict={self.X:A, self.Y:Y})
+        FD = {self.X:A, self.Y:Y} if FD is None else FD     #Feed dictionary
+        #Loop up to mIter times gradually scaling up the batch size (if range is provided)
+        for i, BSi in enumerate(_GetBatchRange(self.batSz, self.mIter)):
+            if BSi is None:                          #Compute loss and optimize simultaneously for all samples
+                err, _ = self.GetSes().run([self.loss, self.optmzr], feed_dict = FD)
             else:                                           #Train m samples using random batches of size self.bs
                 err = 0.0
-                for j in range(0, m, self.batSz):                   #Compute loss and optimize simultaneously for batch
-                    bi = np.random.randint(m, size = self.batSz)    #Randomly chosen batch indices
-                    l, _ = self.GetSes().run([self.loss, self.optmzr], feed_dict = {self.X:A[bi], self.Y:Y[bi]})
-                    err += l                                        #Accumulate loss over all batches
-                err /= len(range(0, m, self.batSz))                 #Average over all batches
+                for j in range(0, m, BSi):                  #Compute loss and optimize simultaneously for batch
+                    bi = np.random.choice(m, BSi, False)    #Randomly chosen batch indices
+                    BFD = {k:v[bi] for k, v in FD.items()}  #Feed dictionary for this batch
+                    l, _ = self.GetSes().run([self.loss, self.optmzr], feed_dict = BFD)
+                    err += l                                #Accumulate loss over all batches
+                err /= len(range(0, m, BSi))                #Average over all batches
             if self.vrbse:
-                print("Iter {:5d}\t{:.8f}".format(i + 1, err))
+                print("Iter {:5d}\t{:16.8f} (Batch Size: {:5d})".format(i + 1, err, BSi))
             if err < self.tol or self.stopIter:
                 break   #Stop if tolerance was reached or flag was set
                 
     def GetBias(self, i):
         '''
+        Warning! Does not work with restored models currently.
         Gets the i-th bias vector from the model
         '''
         return self.B[i].eval(session = self.GetSes())
@@ -268,7 +288,8 @@ class ANN:
                 
     def GetWeightMatrix(self, i):
         '''
-        Gets the i-th weight matrix from the model
+        Warning! Does not work with restored models currently.
+        Gets the i-th weight matrix from the model.
         '''
         return self.W[i].eval(session = self.GetSes())
 
@@ -276,19 +297,19 @@ class ANN:
         '''
         Initialize variables and start the TensorFlow session
         '''
-        self.saver = tf.train.Saver()               #For saving a model for later restoration
         ANN.sessc += 1                              #Increment session counter
         sess = self.GetSes()
         self.init = tf.variables_initializer(self.TFVar)
-        sess.run(self.init)                              #Initialize all variables for this model
+        sess.run(self.init)                         #Initialize all variables for this model
         
-    def predict(self, A):
+    def predict(self, A, FD = None):
         '''
         Predict the output given the input (only run after calling fit)
         A: The input values for which to predict outputs
         return: The predicted output values (one row per input sample)
         '''
-        return self.GetSes().run(self.YH, feed_dict = {self.X:A})
+        FD = {self.X:A} if FD is None else FD
+        return self.GetSes().run(self.YH, feed_dict = FD)
 
     def Reinitialize(self):
         '''
@@ -313,10 +334,10 @@ class ANN:
         p:      Path to model containing files like "path/"
         '''
         try:
-            sav = tf.train.import_meta_graph(p + n + '.meta')
-            sav.restore(self.GetSes(), tf.train.latest_checkpoint(p))
-        except OSError as ose:
-            print('Error Restoring: ' + str(ose))
+            saver = tf.train.Saver()
+            saver.restore(self.GetSes(), p + n)
+        except Exception as e:
+            print('Error restoring: ' + p + n)
             return False
         return True
 
@@ -325,7 +346,8 @@ class ANN:
         Save model to file
         p:  Path to save file like "path/"
         '''
-        self.saver.save(self.GetSes(), p)
+        saver = tf.train.Saver()
+        saver.save(self.GetSes(), p)
 
     def SetMaxIter(self, mi):
         '''
@@ -362,15 +384,15 @@ class ANNR(ANN):
     Artificial Neural Network for Regression (Base Class)
     '''
    
-    def score(self, A, Y):
+    def score(self, A, Y, FD = None):
         '''
-        Predicts the ouputs for input A and then computes the RMSE between
-        The predicted values and the actualy values
-        A: The input values for which to predict outputs
-        Y: The actual target values
-        return: The RMSE
+        Predicts the loss function for given input and target matrices
+        A: The input data matrix
+        Y: The target matrix
+        return: The loss
         '''
-        return np.sqrt(self.GetSes().run(self.loss, feed_dict = {self.X:A, self.Y:Y}) * 2.0) / len(A)
+        FD = {self.X:A, self.Y:Y} if FD is None else FD
+        return self.GetSes().run(self.loss, feed_dict = FD)
 
 class CNNR(ANNR):
     '''
@@ -378,7 +400,7 @@ class CNNR(ANNR):
     '''
     
     def __init__(self, imageSize, ws, actvFn = 'relu', batchSize = None, learnRate = 1e-4, loss = 'l2', maxIter = 1024, 
-                 name = 'tfann', optmzrn = 'adam', pad = 'SAME', tol = 1e-1, reg = None, verbose = False):
+                 name = 'tfann', optmzrn = 'adam', pad = 'SAME', tol = 1e-1, reg = None, verbose = False, X = None, Y = None):
         '''
         imageSize:  Size of the images used (Height, Width, Depth)
         ws:         Weight matrix sizes
@@ -386,14 +408,16 @@ class CNNR(ANNR):
         self.imgSize = list(imageSize)      #Image size for CNN
         self.ws = ws                        #Add data member so CreateModel can access
         self.pad = pad                                                  #Padding method to use
-        super().__init__(actvFn, batchSize, learnRate, loss, maxIter, name, optmzrn, reg, tol, verbose)
+        super().__init__(actvFn, batchSize, learnRate, loss, maxIter, name, optmzrn, reg, tol, verbose, X, Y)
         
     def CreateModel(self):
-        self.X = tf.placeholder("float", [None] + self.imgSize)         #Input data matrices (batch of RGB images)
-        self.Y = tf.placeholder("float", [None, self.ws[-1][1]])        #Target value placeholder
-        self.YH = self._CreateCNN(self.ws)                              #Create graph; YH is output from feedforward
+        if self.X is None:  #If no input variable was specified make a new placeholder
+            self.X = tf.placeholder("float", [None] + self.imgSize)   #Input data matrices (batch of RGB images)
+        if self.Y is None:  
+            self.Y = tf.placeholder("float", [None, self.ws[-1][1]])                #Target value placeholder
+        self.YH, self.W, self.B = _CreateCNN(self.AF, self.pad, self.ws, self.X)#Create graph; YH is output from feedforward
         self.loss = tf.reduce_mean(self.LF(self.YH, self.Y))            
-        if self.reg is not None:                                        #Regularization can prevent over-fitting
+        if self.reg is not None:                                                #Regularization can prevent over-fitting
             self.loss += _CreateL2Reg(self.W, self.B) * self.reg
         self.optmzr = _GetOptimizer(self.optmzrn, self.lr).minimize(self.loss)
 
@@ -403,16 +427,18 @@ class MLPR(ANNR):
     '''
     
     def __init__(self, layers, actvFn = 'tanh', batchSize = None, learnRate = 1e-3, loss = 'l2', maxIter = 1024, 
-                 name = 'tfann', optmzrn = 'adam',  reg = 1e-3, tol = 1e-2, verbose = False):
+                 name = 'tfann', optmzrn = 'adam',  reg = 1e-3, tol = 1e-2, verbose = False, X = None, Y = None):
         '''
         layers: A list of layer sizes
         '''
         self.layers = layers
-        super().__init__(actvFn, batchSize, learnRate, loss, maxIter, name, optmzrn, reg, tol, verbose)
+        super().__init__(actvFn, batchSize, learnRate, loss, maxIter, name, optmzrn, reg, tol, verbose, X, Y)
 
     def CreateModel(self):
-        self.X = tf.placeholder("float", [None, self.layers[0]])            #Input data matrix
-        self.Y = tf.placeholder("float", [None, self.layers[-1]])           #Target value matrix
+        if self.X is None:  #If no input variable was specified make a new placeholder
+            self.X = tf.placeholder("float", [None, self.layers[0]])            #Input data matrix
+        if self.Y is None:
+            self.Y = tf.placeholder("float", [None, self.layers[-1]])           #Target value matrix
         self.W, self.B = _CreateVars(self.layers)                           #Setup the weight and bias variables
         self.YH = _CreateMLP(self.X, self.W, self.B, self.AF)               #Create the tensorflow MLP model; YH is graph output
         self.loss = tf.reduce_mean(self.LF(self.YH, self.Y))                
@@ -425,7 +451,7 @@ class MLPB(MLPR):
     Multi-Layer Perceptron for Binary Data
     '''
     
-    def fit(self, A, Y):
+    def fit(self, A, Y, FD = None):
         '''
         Fit the MLP to the data
         A: numpy matrix where each row is a sample
@@ -433,7 +459,7 @@ class MLPB(MLPR):
         '''
         A = self.Tx(A)          #Transform data for better performance
         Y = self.Tx(Y)          #with tanh activation
-        super().fit(A, Y)
+        super().fit(A, Y, FD)
         
     def predict(self, A):
         '''
@@ -452,18 +478,20 @@ class RFSMLPB(ANNR):
     '''
     
     def __init__(self, layers, actvFn = 'tanh', batchSize = None, learnRate = 1e-3, loss = 'l2', maxIter = 1024, 
-                 name = 'tfann', optmzrn = 'adam',  reg = 1e-3, tol = 1e-2, verbose = False):
+                 name = 'tfann', optmzrn = 'adam',  reg = 1e-3, tol = 1e-2, verbose = False, X = None, Y = None):
         '''
         layers: A list of layer sizes
         '''
         self.layers = layers
-        super().__init__(actvFn, batchSize, learnRate, loss, maxIter, name, optmzrn, reg, tol, verbose)
+        super().__init__(actvFn, batchSize, learnRate, loss, maxIter, name, optmzrn, reg, tol, verbose, X, Y)
 
     def CreateModel(self):
         ls = self.layers[0]
         nl = len(self.layers)
-        self.X = tf.placeholder("float", [None, ls])                        #Input data matrix
-        self.Y = tf.placeholder("float", [None, nl, ls])                    #Target value matrix
+        if self.X is None:  #If no input variable was specified make a new placeholder
+            self.X = tf.placeholder("float", [None, ls])                        #Input data matrix
+        if self.Y is None:
+            self.Y = tf.placeholder("float", [None, nl, ls])                    #Target value matrix
         self.W, self.B = _CreateVars(self.layers)                           #Setup the weight and bias variables
         self.YH = _CreateRFSMLP(self.X, self.W, self.B, self.AF)            #Create the tensorflow MLP model; YH is graph output
         self.loss = tf.reduce_mean(self.LF(self.YH, self.Y))                
@@ -471,7 +499,7 @@ class RFSMLPB(ANNR):
             self.loss += _CreateL2Reg(self.W, self.B) * self.reg
         self.optmzr = _GetOptimizer(self.optmzrn, self.lr).minimize(self.loss)  #Get optimizer method to minimize the loss function
          
-    def fit(self, A, Y):
+    def fit(self, A, Y, FD = None):
         '''
         Fit the MLP to the data
         A: numpy matrix where each row is a sample
@@ -479,7 +507,7 @@ class RFSMLPB(ANNR):
         '''
         A = self.Tx(A)          #Transform data for better performance
         Y = self.Tx(Y)          #with tanh activation
-        super().fit(A, Y)
+        super().fit(A, Y, FD)
         
     def predict(self, A):
         '''
@@ -511,29 +539,30 @@ class ANNC(ANN):
         '''
         self._classes = None
 
-    def fit(self, A, Y):
+    def fit(self, A, Y, FD = None):
         '''
         Fit the MLP to the data
         A: numpy matrix where each row is a sample
         y: numpy matrix of target values
         '''
         Y = self.To1Hot(Y)
-        super().fit(A, Y)
+        super().fit(A, Y, FD)
 
     def __init__(self, actvFn = 'tanh', batchSize = None, learnRate = 1e-3, loss = 'smce', maxIter = 1024, 
-                 name = 'tfann', optmzrn = 'adam', reg = 1e-3, tol = 1e-2, verbose = False):
-        #Lookup table for class labels
-        self._classes = None
-        super().__init__(actvFn, batchSize, learnRate, loss, maxIter, name, optmzrn, reg, tol, verbose)
+                 name = 'tfann', optmzrn = 'adam', reg = 1e-3, tol = 1e-2, verbose = False, X = None, Y = None):
+        super().__init__(actvFn, batchSize, learnRate, loss, maxIter, name, optmzrn, reg, tol, verbose, X, Y)
+        self.YHL = tf.argmax(self.YH, axis = 1) #Index of label with max probability
+        self._classes = None                    #Lookup table for class labels
 
-    def predict(self, A):
+    def predict(self, A, FD = None):
         '''
         Predict the output given the input (only run after calling fit)
         A: The input values for which to predict outputs
         return: The predicted output values (one row per input sample)
         '''
         #Return prediction labels recovered from 1-hot encoding
-        return self._classes[np.argmax(super().predict(A), 1).reshape(-1)]
+        FD = {self.X:A} if FD is None else FD
+        return self._classes[self.GetSes().run(self.YHL, feed_dict = FD)]
 
     def RestoreClasses(self, Y):
         '''
@@ -571,7 +600,7 @@ class CNNC(ANNC):
     '''
 
     def __init__(self, imageSize, ws, actvFn = 'relu', batchSize = None, learnRate = 1e-4, loss = 'smce', name = 'tfann',
-                 maxIter = 1024, optmzrn = 'adam', pad = 'SAME', tol = 1e-1, reg = None, verbose = False):
+                 maxIter = 1024, optmzrn = 'adam', pad = 'SAME', tol = 1e-1, reg = None, verbose = False, X = None, Y = None):
         '''
         imageSize:  Size of the images used (Height, Width, Depth)
         ws:         Weight matrix sizes
@@ -580,14 +609,16 @@ class CNNC(ANNC):
         self.imgSize = list(imageSize)
         self.ws = ws
         self.pad = pad
-        super().__init__(actvFn, batchSize, learnRate, loss, maxIter, name, optmzrn, reg, tol, verbose)
+        super().__init__(actvFn, batchSize, learnRate, loss, maxIter, name, optmzrn, reg, tol, verbose, X, Y)
         
     def CreateModel(self):
-        self.X = tf.placeholder("float", [None] + self.imgSize)         #Input data matrix of samples                                                 #Padding method to use
-        self.Y = tf.placeholder("float", [None, self.ws[-1][1]])        #Target matrix
-        self.YH = self._CreateCNN(self.ws)                              #Create graph; YH is output matrix
-        self.loss = tf.reduce_mean(self.LF(self.YH, self.Y))            #Loss term
-        if self.reg is not None:                                        #Regularization can prevent over-fitting
+        if self.X is None:  #If no input variable was specified make a new placeholder
+            self.X = tf.placeholder("float", [None] + self.imgSize)   #Input data matrix of samples
+        if self.Y is None:
+            self.Y = tf.placeholder("float", [None, self.ws[-1][1]])                #Target matrix
+        self.YH, self.W, self.B = _CreateCNN(self.AF, self.pad, self.ws, self.X)#Create graph; YH is output from feedforward
+        self.loss = tf.reduce_mean(self.LF(self.YH, self.Y))                    #Loss term
+        if self.reg is not None:                                                #Regularization can prevent over-fitting
             self.loss += _CreateL2Reg(self.W, self.B) * self.reg
         self.optmzr = _GetOptimizer(self.optmzrn, self.lr).minimize(self.loss)
         
@@ -597,16 +628,18 @@ class MLPC(ANNC):
     '''
     
     def __init__(self, layers, actvFn = 'tanh', batchSize = None, learnRate = 1e-3, loss = 'smce', maxIter = 1024,
-                 name = 'tfann', optmzrn = 'adam', reg = 1e-3, tol = 1e-2, verbose = False):
+                 name = 'tfann', optmzrn = 'adam', reg = 1e-3, tol = 1e-2, verbose = False, X = None, Y = None):
         '''
         layers: A list of layer sizes
         '''
         self.layers = layers
-        super().__init__(actvFn, batchSize, learnRate, loss, maxIter, name, optmzrn, reg, tol, verbose)
+        super().__init__(actvFn, batchSize, learnRate, loss, maxIter, name, optmzrn, reg, tol, verbose, X, Y)
         
     def CreateModel(self):
-        self.X = tf.placeholder("float", [None, self.layers[0]])            #Input data matrix
-        self.Y = tf.placeholder("float", [None, self.layers[-1]])           #Target matrix
+        if self.X is None:  #If no input variable was specified make a new placeholder
+            self.X = tf.placeholder("float", [None, self.layers[0]])            #Input data matrix
+        if self.Y is None:
+            self.Y = tf.placeholder("float", [None, self.layers[-1]])           #Target matrix
         self.W, self.B = _CreateVars(self.layers)                           #Setup the weight and bias variables
         self.YH = _CreateMLP(self.X, self.W, self.B, self.AF)               #Create the tensorflow model; YH is output matrix
         #Cross entropy loss function
@@ -615,56 +648,33 @@ class MLPC(ANNC):
             self.loss += _CreateL2Reg(self.W, self.B) * self.reg
         self.optmzr = _GetOptimizer(self.optmzrn, self.lr).minimize(self.loss)
         
-class MLPMC(ANNC):
+class MLPMC():
     '''
     Multi-Layer Perceptron for Multi-Classification
     Uses n classifiers to solve a multi-classification problem with n output columns.
     '''
     
-    def __init__(self, layers, cl, actvFn = 'tanh', batchSize = None, learnRate = 1e-3, loss = 'smce', 
-                 maxIter = 1024, name = 'tfann', optmzrn = 'adam', reg = None, tol = 1e-1, verbose = False):
+    def __init__(self, layers, actvFn = 'tanh', batchSize = None, learnRate = 1e-3, loss = 'smce', 
+                 maxIter = 1024, name = 'tfann', optmzrn = 'adam', reg = None, tol = 1e-1, verbose = False, X = None, Y = None):
         '''
         layers:     Only specify the input sizes and hidden layers sizes. Output layers are
                     automatically inferred from the cl parameter
         cl:         The lists of possible classes for each column (from left to right)    
         '''
-        self.cl = cl                #List of list of possible classes
-        self.lo = len(cl)           #Total length of output vectors
-        self.layers = layers
-        super().__init__(actvFn, batchSize, learnRate, loss, maxIter, name, optmzrn, reg, tol, verbose)
-
-    def CreateModel(self):
-        self.X = tf.placeholder("float", [None, self.layers[0]])                #Input data matrix
-        self.optmzrs, self.losses, self.Ws, self.Bs, self.Ys, self.YHs = [], [], [], [], [], []
-        for i in range(self.lo):
-            Y = tf.placeholder("float", [None, len(self.cl[i])])                #Target matrix is 1-hot encoding
-            self.Ys.append(Y)                                                   #of classes for column i
-            W, B = _CreateVars(self.layers + [len(self.cl[i])])                 #Add last layer for 1-hot encoding prediction
-            self.Ws.append(W)
-            self.Bs.append(B)
-            YH = _CreateMLP(self.X, W, B, self.AF)                              #Create the tensorflow model; YH is output matrix
-            self.YHs.append(YH)
-            loss = tf.reduce_mean(self.LF(YH, Y))                               #Reduce mean of the loss function
-            if self.reg is not None:                                            #Regularization can prevent over-fitting
-                loss += _CreateL2Reg(W, B) * self.reg
-            self.losses.append(loss)
-            self.optmzrs.append(_GetOptimizer(self.optmzrn, self.lr).minimize(loss))
+        self.lo = len(layers)       #Total length of output vectors
+        self.M = []
+        for Li in layers:
+            self.M.append(MLPC(Li, actvFn, batchSize, learnRate, loss, maxIter, name, optmzrn, reg, tol, verbose, X, Y))
  
-    def fit(self, A, Y):
-        for i in range(self.lo):                #Loop over all columns in output
-            self.loss = self.losses[i]          #Choose loss for model predicting i-th feature
-            self.optmzr = self.optmzrs[i]
-            self.Y = self.Ys[i]                 #Choose appropriate Y placeholder
-            self.ClearClasses()                 #Setup lookup to encoding 1-hot vectors
-            self.RestoreClasses(self.cl[i])     #using classes for column i
-            super().fit(A, Y[:, i])             #Fit model for i-th column
+    def fit(self, A, Y, FD = None):
+        for i, Mi in enumerate(self.M): #Loop over all columns in output
+            Mi.fit(A, Y[:, i], FD)      #Fit model for i-th column
             
     def predict(self, A):
         P = []
-        for i in range(self.lo):                #Loop over each column in output
-            self.YH = self.YHs[i]               #Choose feedforward variable for this column
-            P.append(super().predict(A))        #Predict classes for i-th column
-        return np.column_stack(P)               #Stack columns together
+        for Mi in self.M:               #Loop over each column in output
+            P.append(Mi.predict(A))     #Predict classes for i-th column
+        return np.column_stack(P)       #Stack columns together
     
     def score(self, A, Y):
         '''
