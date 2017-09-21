@@ -268,7 +268,7 @@ class ANN:
                     err += l                                #Accumulate loss over all batches
                 err /= len(range(0, m, BSi))                #Average over all batches
             if self.vrbse:
-                print("Iter {:5d}\t{:16.8f} (Batch Size: {:5d})".format(i + 1, err, BSi))
+                print("Iter {:5d}\t{:16.8f} (Batch Size: {:5d})".format(i + 1, err, -1 if BSi is None else BSi))
             if err < self.tol or self.stopIter:
                 break   #Stop if tolerance was reached or flag was set
                 
