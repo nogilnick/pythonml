@@ -33,10 +33,16 @@ def _CreateCNN(AF, PM, WS, X):
     W, B = [], []
     YH = X
     for i, WSi in enumerate(WS):
-        if WSi[0] == 'C':           #Convolutional layer
+        if WSi[0] == 'C':           #2-D Convolutional layer
             W.append(tf.Variable(tf.truncated_normal(WSi[1], stddev = 5e-2)))
             B.append(tf.Variable(tf.constant(0.0, shape = [WSi[1][-1]])))
             YH = tf.nn.conv2d(YH, W[-1], WSi[2], padding = PM)
+            YH = tf.nn.bias_add(YH, B[-1])
+            YH = AF(YH)             #Apply the activation function to the output
+        if WSi[0] == 'C1d':         #1-D Convolutional Layer
+            W.append(tf.Variable(tf.truncated_normal(WSi[1], stddev = 5e-2)))
+            B.append(tf.Variable(tf.constant(0.0, shape = [WSi[1][-1]])))
+            YH = tf.nn.conv1d(YH, W[-1], WSi[2], padding = PM)
             YH = tf.nn.bias_add(YH, B[-1])
             YH = AF(YH)             #Apply the activation function to the output
         elif WSi[0] == 'P':         #Pooling layer
@@ -199,7 +205,7 @@ class ANN:
             ANN.sess = None
 
     def __init__(self, actvFn = 'relu', batchSize = None, learnRate = 1e-4, loss = 'l2', maxIter = 1024,
-                 name = 'tfann', optmzrn = 'adam', reg = None, tol = 1e-1, verbose = False, X = None, Y = None):
+                 name = 'tfann', optmzrn = 'adam', reg = None, tol = 1e-2, verbose = False, X = None, Y = None):
         '''
         Common arguments for all artificial neural network regression models
         actvFn:     The activation function to use: 'tanh', 'sig', or 'relu'
@@ -399,25 +405,25 @@ class CNNR(ANNR):
     Convolutional Neural Network for Regression
     '''
     
-    def __init__(self, imageSize, ws, actvFn = 'relu', batchSize = None, learnRate = 1e-4, loss = 'l2', maxIter = 1024, 
-                 name = 'tfann', optmzrn = 'adam', pad = 'SAME', tol = 1e-1, reg = None, verbose = False, X = None, Y = None):
+    def __init__(self, inputSize, ws, actvFn = 'relu', batchSize = None, learnRate = 1e-4, loss = 'l2', maxIter = 1024, 
+                 name = 'tfann', optmzrn = 'adam', pad = 'SAME', tol = 1e-2, reg = None, verbose = False, X = None, Y = None):
         '''
-        imageSize:  Size of the images used (Height, Width, Depth)
+        inputSize:  Size of the images used (Height, Width, Depth)
         ws:         Weight matrix sizes
         '''
-        self.imgSize = list(imageSize)      #Image size for CNN
+        self.IS = list(inputSize)      #Image size for CNN
         self.ws = ws                        #Add data member so CreateModel can access
         self.pad = pad                                                  #Padding method to use
         super().__init__(actvFn, batchSize, learnRate, loss, maxIter, name, optmzrn, reg, tol, verbose, X, Y)
         
     def CreateModel(self):
         if self.X is None:  #If no input variable was specified make a new placeholder
-            self.X = tf.placeholder("float", [None] + self.imgSize)   #Input data matrices (batch of RGB images)
-        if self.Y is None:  
-            self.Y = tf.placeholder("float", [None, self.ws[-1][1]])                #Target value placeholder
+            self.X = tf.placeholder("float", [None] + self.IS)   #Input data matrices (batch of RGB images)
         self.YH, self.W, self.B = _CreateCNN(self.AF, self.pad, self.ws, self.X)#Create graph; YH is output from feedforward
+        if self.Y is None:  
+            self.Y = tf.placeholder("float", self.YH.shape) #Target value placeholder
         self.loss = tf.reduce_mean(self.LF(self.YH, self.Y))            
-        if self.reg is not None:                                                #Regularization can prevent over-fitting
+        if self.reg is not None:                            #Regularization can prevent over-fitting
             self.loss += _CreateL2Reg(self.W, self.B) * self.reg
         self.optmzr = _GetOptimizer(self.optmzrn, self.lr).minimize(self.loss)
 
@@ -436,11 +442,11 @@ class MLPR(ANNR):
 
     def CreateModel(self):
         if self.X is None:  #If no input variable was specified make a new placeholder
-            self.X = tf.placeholder("float", [None, self.layers[0]])            #Input data matrix
+            self.X = tf.placeholder("float", [None, self.layers[0]])    #Input data matrix
+        self.W, self.B = _CreateVars(self.layers)                       #Setup the weight and bias variables
+        self.YH = _CreateMLP(self.X, self.W, self.B, self.AF)   #Create the tensorflow MLP model; YH is graph output
         if self.Y is None:
-            self.Y = tf.placeholder("float", [None, self.layers[-1]])           #Target value matrix
-        self.W, self.B = _CreateVars(self.layers)                           #Setup the weight and bias variables
-        self.YH = _CreateMLP(self.X, self.W, self.B, self.AF)               #Create the tensorflow MLP model; YH is graph output
+            self.Y = tf.placeholder("float", self.YH.shape)     #Target value matrix
         self.loss = tf.reduce_mean(self.LF(self.YH, self.Y))                
         if self.reg is not None:                                            #Regularization can prevent over-fitting
             self.loss += _CreateL2Reg(self.W, self.B) * self.reg
@@ -489,13 +495,13 @@ class RFSMLPB(ANNR):
         ls = self.layers[0]
         nl = len(self.layers)
         if self.X is None:  #If no input variable was specified make a new placeholder
-            self.X = tf.placeholder("float", [None, ls])                        #Input data matrix
+            self.X = tf.placeholder("float", [None, ls])            #Input data matrix
+        self.W, self.B = _CreateVars(self.layers)                   #Setup the weight and bias variables
+        self.YH = _CreateRFSMLP(self.X, self.W, self.B, self.AF)    #Create the tensorflow MLP model; YH is graph output
         if self.Y is None:
-            self.Y = tf.placeholder("float", [None, nl, ls])                    #Target value matrix
-        self.W, self.B = _CreateVars(self.layers)                           #Setup the weight and bias variables
-        self.YH = _CreateRFSMLP(self.X, self.W, self.B, self.AF)            #Create the tensorflow MLP model; YH is graph output
+            self.Y = tf.placeholder("float", self.YH.shape)         #Target value matrix
         self.loss = tf.reduce_mean(self.LF(self.YH, self.Y))                
-        if self.reg is not None:                                            #Regularization can prevent over-fitting
+        if self.reg is not None:                                    #Regularization can prevent over-fitting
             self.loss += _CreateL2Reg(self.W, self.B) * self.reg
         self.optmzr = _GetOptimizer(self.optmzrn, self.lr).minimize(self.loss)  #Get optimizer method to minimize the loss function
          
@@ -599,26 +605,26 @@ class CNNC(ANNC):
     Convolutional Neural Network for Classification
     '''
 
-    def __init__(self, imageSize, ws, actvFn = 'relu', batchSize = None, learnRate = 1e-4, loss = 'smce', name = 'tfann',
-                 maxIter = 1024, optmzrn = 'adam', pad = 'SAME', tol = 1e-1, reg = None, verbose = False, X = None, Y = None):
+    def __init__(self, inputSize, ws, actvFn = 'relu', batchSize = None, learnRate = 1e-4, loss = 'smce', name = 'tfann',
+                 maxIter = 1024, optmzrn = 'adam', pad = 'SAME', tol = 1e-2, reg = None, verbose = False, X = None, Y = None):
         '''
-        imageSize:  Size of the images used (Height, Width, Depth)
+        inputSize:  Size of the images used (Height, Width, Depth)
         ws:         Weight matrix sizes
         '''
         #Initialize fields from base class
-        self.imgSize = list(imageSize)
+        self.IS = list(inputSize)
         self.ws = ws
         self.pad = pad
         super().__init__(actvFn, batchSize, learnRate, loss, maxIter, name, optmzrn, reg, tol, verbose, X, Y)
         
     def CreateModel(self):
         if self.X is None:  #If no input variable was specified make a new placeholder
-            self.X = tf.placeholder("float", [None] + self.imgSize)   #Input data matrix of samples
-        if self.Y is None:
-            self.Y = tf.placeholder("float", [None, self.ws[-1][1]])                #Target matrix
+            self.X = tf.placeholder("float", [None] + self.IS)   #Input data matrix of samples
         self.YH, self.W, self.B = _CreateCNN(self.AF, self.pad, self.ws, self.X)#Create graph; YH is output from feedforward
-        self.loss = tf.reduce_mean(self.LF(self.YH, self.Y))                    #Loss term
-        if self.reg is not None:                                                #Regularization can prevent over-fitting
+        if self.Y is None:
+            self.Y = tf.placeholder("float", self.YH.shape)     #Target matrix
+        self.loss = tf.reduce_mean(self.LF(self.YH, self.Y))    #Loss term
+        if self.reg is not None:                                #Regularization can prevent over-fitting
             self.loss += _CreateL2Reg(self.W, self.B) * self.reg
         self.optmzr = _GetOptimizer(self.optmzrn, self.lr).minimize(self.loss)
         
@@ -637,14 +643,14 @@ class MLPC(ANNC):
         
     def CreateModel(self):
         if self.X is None:  #If no input variable was specified make a new placeholder
-            self.X = tf.placeholder("float", [None, self.layers[0]])            #Input data matrix
+            self.X = tf.placeholder("float", [None, self.layers[0]])#Input data matrix
+        self.W, self.B = _CreateVars(self.layers)                   #Setup the weight and bias variables
+        self.YH = _CreateMLP(self.X, self.W, self.B, self.AF)       #Create the tensorflow model; YH is output matrix
         if self.Y is None:
-            self.Y = tf.placeholder("float", [None, self.layers[-1]])           #Target matrix
-        self.W, self.B = _CreateVars(self.layers)                           #Setup the weight and bias variables
-        self.YH = _CreateMLP(self.X, self.W, self.B, self.AF)               #Create the tensorflow model; YH is output matrix
+            self.Y = tf.placeholder("float", self.YH.shape)         #Target matrix
         #Cross entropy loss function
         self.loss = tf.reduce_mean(self.LF(self.YH, self.Y))
-        if self.reg is not None:                                            #Regularization can prevent over-fitting
+        if self.reg is not None:                                    #Regularization can prevent over-fitting
             self.loss += _CreateL2Reg(self.W, self.B) * self.reg
         self.optmzr = _GetOptimizer(self.optmzrn, self.lr).minimize(self.loss)
         
@@ -655,7 +661,7 @@ class MLPMC():
     '''
     
     def __init__(self, layers, actvFn = 'tanh', batchSize = None, learnRate = 1e-3, loss = 'smce', 
-                 maxIter = 1024, name = 'tfann', optmzrn = 'adam', reg = None, tol = 1e-1, verbose = False, X = None, Y = None):
+                 maxIter = 1024, name = 'tfann', optmzrn = 'adam', reg = None, tol = 1e-2, verbose = False, X = None, Y = None):
         '''
         layers:     Only specify the input sizes and hidden layers sizes. Output layers are
                     automatically inferred from the cl parameter
