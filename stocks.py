@@ -40,6 +40,7 @@ def Main(args):
     try:
         datetime.strptime(args[1], '%Y-%m-%d').timestamp()
     except Exception as e:
+        print(e)
         print('Error parsing date: ' + args[1])
         PrintUsage()
         return

@@ -16,7 +16,7 @@ import matplotlib.pyplot as mpl
 #Used to scale data
 from sklearn.preprocessing import StandardScaler
 #Used to perform CV
-from sklearn.cross_validation import KFold
+from sklearn.model_selection import ShuffleSplit
 
 #Gives a list of timestamps from the start date to the end date
 #
@@ -333,8 +333,8 @@ class StockPredictor:
         #Get the target values and their corresponding column names
         y, _ = self._ExtractTarg(D)
         #Begin cross validation
-        kf = KFold(A.shape[0])
-        for trn, tst in kf:
+        ss = ShuffleSplit(n_splits = 1)
+        for trn, tst in ss.split(A):
             s1 = self.R.score(A, y)
             s2 = self.R.score(A[tst], y[tst])
             s3 = self.R.score(A[trn], y[trn])
