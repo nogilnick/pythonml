@@ -1,3 +1,7 @@
+'''
+TFTest.py
+This file contains unit tests for the TFANN module.
+'''
 import numpy as np
 import tensorflow as tf
 from TFANN import ANN, CNNC, CNNR, MLPB, MLPC, MLPMC, MLPR, RFSMLPB

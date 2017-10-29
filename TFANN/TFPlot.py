@@ -1,3 +1,8 @@
+'''
+TFPlot.py
+This file functions to plot performance of a
+neural network during training.
+'''
 import numpy as np
 import math
 import matplotlib.pyplot as mpl
@@ -96,6 +101,3 @@ if __name__ == "__main__":
     mlpr = MLPB(l, actvFn = 'tanh', optmzr = 'adam', maxItr = 64, tol = 0.0001, learnRate = 25e-5, verbose = True, reg = 1e-7)
     
     a = PlotLearn(mlpr, A, Y)
-    
-    
-        
