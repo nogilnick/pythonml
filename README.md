@@ -38,7 +38,6 @@ a = MLPC([4, 4, 2], batchSize = 4, learnRate = 1e-4, maxIter = 16, verbose = Tru
 a.fit(A, Y)
 s = a.score(A, Y)
 YH = a.predict(A)
-return True
 ```
 
 ## TheanoANN.py
