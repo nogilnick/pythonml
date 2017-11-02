@@ -23,7 +23,6 @@ def ImgToString(I):
     '''
     SI = DivideIntoSubimages(I)
     YH = cnnc.predict(SI)
-    print(YH.shape)
     ss = SubimageShape(I)
     return JoinStrings(YH, ss)
     
@@ -62,14 +61,9 @@ def SubimageShape(I):
     h, w, c = I.shape
     return h // IS[0], w // IS[1]
 
-#The possible chars
-CS = ['\x00'] + list(string.ascii_letters) + list(string.digits)
-#Map from char to index
-CM = dict(zip(CS, range(len(CS))))
-#Number of possible chars
-NC = len(CM)
+NC = len(string.ascii_letters + string.digits + ' ')
 MAX_CHAR = 64
-IS = (18, 640, 3)
+IS = (18, 640, 3)       #Image size for CNN
 #Architecture of the neural network
 ws = [('C', [4, 4,  3, NC // 2], [1, 2, 2, 1]), ('C', [4, 4, NC // 2, NC], [1, 2, 1, 1]), ('C', [8, 5, NC, NC], [1, 8, 5, 1]), ('R', [-1, 64, NC])]
 #Create the neural network in TensorFlow
