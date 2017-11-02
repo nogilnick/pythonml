@@ -40,7 +40,7 @@ def T1():
     
 def T2():
     '''
-    Tests basic functionality of MLPR
+    Tests basic functionality of MLPC
     '''
     A = np.random.rand(32, 4)
     Y = np.array((16 * [1]) + (16 * [0]))

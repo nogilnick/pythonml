@@ -12,7 +12,34 @@ An implementation of OCR using TensorFlow. See [the related blog post](https://n
 
 ## TFANN
 
-A neural network module containing implementations of MLP, and CNN networks in TensorFlow. The classes in the module adhere to the scikit-learn fit, predict, score interface.
+A neural network module containing implementations of MLP, and CNN networks in TensorFlow. The classes in the module adhere to the scikit-learn fit, predict, score interface. Sample code for building an MLP regression model:
+
+```python
+import numpy as np
+from TFANN import MLPR
+
+A = np.random.rand(32, 4)
+Y = np.random.rand(32, 1)
+a = MLPR([4, 4, 1], batchSize = 4, learnRate = 1e-4, maxIter = 16, verbose = True)
+a.fit(A, Y)
+s = a.score(A, Y)
+YH = a.predict(A)
+```
+
+For building a classification model:
+
+```python
+import numpy as np
+from TFANN import MLPC
+
+A = np.random.rand(32, 4)
+Y = np.array((16 * [1]) + (16 * [0]))
+a = MLPC([4, 4, 2], batchSize = 4, learnRate = 1e-4, maxIter = 16, verbose = True)
+a.fit(A, Y)
+s = a.score(A, Y)
+YH = a.predict(A)
+return True
+```
 
 ## TheanoANN.py
 
