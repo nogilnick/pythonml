@@ -1,8 +1,12 @@
 import numpy as np
+from numpy.random import randint, choice
+import os
 import string
 from PIL import Image, ImageFont, ImageDraw
 
-def MakeImg(t, f, fn, s = (100, 100), o = (16, 8)):
+TF = ImageFont.truetype('consola.ttf', 18)
+
+def MakeImg(t, f, fn, s = (100, 100), o = (0, 0)):
     '''
     Generate an image of text
     t:      The text to display in the image
@@ -13,26 +17,37 @@ def MakeImg(t, f, fn, s = (100, 100), o = (16, 8)):
     '''
     img = Image.new('RGB', s, "black")
     draw = ImageDraw.Draw(img)
-    draw.text(OFS, t, (255, 255, 255), font = f)
+    draw.text(o, t, (255, 255, 255), font = f)
     img.save(fn)
+    
+def GetFontSize(S):
+    img = Image.new('RGB', (1, 1), "black")
+    draw = ImageDraw.Draw(img)
+    return draw.textsize(S, font = TF)
 
-#The possible characters to use
-CS = list(string.ascii_letters) + list(string.digits)
-RTS = list(np.random.randint(10, 64, size = 8192)) + [64]
-#The random strings
-S = [''.join(np.random.choice(CS, i)) for i in RTS]
-#Get the font
-font = ImageFont.truetype("LiberationMono-Regular.ttf", 16)
-#The largest size needed
-MS = max(font.getsize(Si) for Si in S)
-#Computed offset
-OFS = ((640 - MS[0]) // 2, (32 - MS[1]) // 2)
-#Image size
-MS = (640, 32)
-Y = []
-for i, Si in enumerate(S):
-    MakeImg(Si, font, str(i) + '.png', MS, OFS)
-    Y.append(str(i) + '.png,' + Si)
-#Write CSV file
-with open('Train.csv', 'w') as F:
-    F.write('\n'.join(Y))
+def GenSingleLine(MINC = 10, MAXC = 64, NIMG = 128, DP = 'Out'):               #Font path
+    #The possible characters to use
+    CS = list(string.ascii_letters) + list(string.digits)
+    MS = font.getsize('0' * MAXC)   #Size needed to fit MAXC characters
+    Y = []
+    for i in range(NIMG):               #Write images to ./Out/ directory
+        Si = ''.join(RC(CS, randint(MINC, MAXC)))
+        FNi = str(i) + '.png'
+        MakeImg(Si, TF, os.path.join(DP, FNi), MS)
+        Y.append(FNi + ',' + Si)
+    with open('Train.csv', 'w') as F:   #Write CSV file
+        F.write('\n'.join(Y))
+        
+def GenMultiLine(ML = 5, MINC = 10, MAXC = 64, NIMG = 128, DP = 'Img'):
+    #The possible characters to use
+    CS = list(string.ascii_letters) + list(string.digits)
+    MS = GetFontSize('\n'.join(ML * ['0' * MAXC]))
+    Y = []
+    for i in range(NIMG):               #Write images to ./Out/ directory
+        Si = '\n'.join(''.join(choice(CS, randint(MINC, MAXC))) for _ in range(randint(1, ML + 1)))
+        FNi = str(i) + '.png'
+        MakeImg(Si, TF, os.path.join(DP, FNi), MS)
+        Y.append(FNi + ',' + Si.replace('\n', '@'))
+        
+if __name__ == "__main__":
+    GenMultiLine(ML = 10, MAXC = 128)

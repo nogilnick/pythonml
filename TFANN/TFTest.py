@@ -81,7 +81,7 @@ def T5():
     '''
     A = np.random.rand(33, 5)
     Y = np.tile(['y', 'n', 'm'], 55).reshape(33, 5)
-    a = MLPMC([5, 4, 5], 5 * [['y', 'n', 'm']], maxIter = 12, name = 'mlpmc1')
+    a = MLPMC(5 * [[5, 4, 3]], maxIter = 12, name = 'mlpmc1')
     a.fit(A, Y)
     a.score(A, Y)
     a.predict(A)

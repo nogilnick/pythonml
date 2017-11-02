@@ -40,14 +40,12 @@ def _CreateCNN(AF, PM, WS, X):
             if i + 1 != len(WS):    #Last layer shouldn't apply activation function
                 X = AF(X)
         if WSi[0] == 'CT':          #2-D Convolutional Transpose layer
-            print(WSi)
             W.append(tf.Variable(tf.truncated_normal(WSi[1], stddev = 5e-2)))
             B.append(tf.Variable(tf.constant(0.0, shape = [WSi[1][-2]])))
             X = tf.nn.conv2d_transpose(X, W[-1], WSi[2], WSi[3], padding = PM)
             X = tf.nn.bias_add(X, B[-1])
             if i + 1 != len(WS):    #Last layer shouldn't apply activation function
                 X = AF(X)
-            print(X.shape)
         if WSi[0] == 'C1d':         #1-D Convolutional Layer
             W.append(tf.Variable(tf.truncated_normal(WSi[1], stddev = 5e-2)))
             B.append(tf.Variable(tf.constant(0.0, shape = [WSi[1][-1]])))
@@ -602,8 +600,9 @@ class ANNC(ANN):
     def __init__(self, actvFn = 'tanh', batchSize = None, learnRate = 1e-3, loss = 'smce', maxIter = 1024, 
                  name = 'tfann', optmzrn = 'adam', reg = 1e-3, tol = 1e-2, verbose = False, X = None, Y = None):
         super().__init__(actvFn, batchSize, learnRate, loss, maxIter, name, optmzrn, reg, tol, verbose, X, Y)
-        self.YHL = tf.argmax(self.O[-1], axis = 1) #Index of label with max probability
-        self._classes = None                    #Lookup table for class labels
+        a = len(self.O[-1].shape) - 1               #Class axis is last axis
+        self.YHL = tf.argmax(self.O[-1], axis = a)  #Index of label with max probability
+        self._classes = None                        #Lookup table for class labels
 
     def predict(self, A, FD = None):
         '''
@@ -636,14 +635,15 @@ class ANNC(ANN):
 
     def To1Hot(self, Y):
         '''
-        Creates an array of 1-hot vectors based on a vector of class labels
+        Creates an array of 1-hot vectors based on a vector of class labels.
+        The class label axis for the encoding is the last axis.
         Y: The vector of class labels
         #return: The 1-Hot encoding of Y
         '''
-        self._classes, inv = np.unique(Y, return_inverse = True)
-        b = np.zeros([len(Y), len(self._classes)])
+        self._classes, inv = np.unique(Y.ravel(), return_inverse = True)
+        b = np.zeros([len(inv), len(self._classes)])
         b[np.arange(b.shape[0]), inv] = 1
-        return b
+        return b.reshape(list(Y.shape) + [len(self._classes)])
 
 class CNNC(ANNC):
     '''
