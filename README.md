@@ -11,8 +11,8 @@ A straightforward impelementation of the backpropagation algorithm for MLP netwo
 An implementation of OCR using TensorFlow. See [the related blog post](https://nicholastsmith.wordpress.com/2017/10/14/deep-learning-ocr-using-tensorflow-and-python/) for more details. Sample code (requires a model to be trained):
 
 ```python
-#Takes a while to load model
 from skimage.io import imread
+#Takes a while to load model
 from DeepOCR import ImageToString
 A = imread('Foo.png')
 S = ImageToString(A)
