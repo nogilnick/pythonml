@@ -17,7 +17,7 @@ def DivideIntoSubimages(I):
     I = I[0:HP, 0:WP]     #Discard any extra pixels
     return I.reshape(H, IS[0], -1, IS[1], c).swapaxes(1, 2).reshape(-1, IS[0], IS[1], c)
     
-def ImgToString(I):
+def ImageToString(I):
     '''
     Uses OCR to transform an image into a string
     '''
@@ -98,5 +98,5 @@ else:
 if __name__ == "__main__":
     for img in sys.argv[1:]:
         I = imread(img)
-        S = ImgToString(I)
+        S = ImageToString(I)
         print(S)
