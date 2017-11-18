@@ -70,7 +70,6 @@ def _CreateCNN(AF, PM, WS, X):
         elif WSi[0] == 'R':         #Reshape layer
             X = tf.reshape(X, WSi[1])
         O.append(X)
-        print(X.shape)
     return O, W, B
 
 def _CreateMLP(_X, _W, _B, _AF):
