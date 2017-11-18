@@ -56,6 +56,8 @@ def _CreateCNN(AF, PM, WS, X):
         elif WSi[0] == 'P':         #Pooling layer
             X = tf.nn.max_pool(X, ksize = WSi[1], strides = WSi[2], padding = PM)
             X = tf.nn.lrn(X, 4, bias = 1.0, alpha = 0.001 / 9.0, beta = 0.75)
+        elif WSi[0] == 'P1d':       #1-D Pooling layer
+            X = tf.nn.pool(X, [WSi[1]], 'MAX', PM, strides = [WSi[2]])
         elif WSi[0] == 'F':         #Fully-connected layer
             if tf.rank(X) != 2:
                 X = tf.contrib.layers.flatten(X)
@@ -68,6 +70,7 @@ def _CreateCNN(AF, PM, WS, X):
         elif WSi[0] == 'R':         #Reshape layer
             X = tf.reshape(X, WSi[1])
         O.append(X)
+        print(X.shape)
     return O, W, B
 
 def _CreateMLP(_X, _W, _B, _AF):
