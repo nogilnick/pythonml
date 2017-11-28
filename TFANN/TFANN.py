@@ -39,25 +39,20 @@ def _CreateCNN(AF, PM, WS, X):
             X = tf.nn.bias_add(X, B[-1])
             if i + 1 != len(WS):    #Last layer shouldn't apply activation function
                 X = AF(X)
-        if WSi[0] == 'CT':          #2-D Convolutional Transpose layer
+        elif WSi[0] == 'CT':        #2-D Convolutional Transpose layer
             W.append(tf.Variable(tf.truncated_normal(WSi[1], stddev = 5e-2)))
             B.append(tf.Variable(tf.constant(0.0, shape = [WSi[1][-2]])))
             X = tf.nn.conv2d_transpose(X, W[-1], WSi[2], WSi[3], padding = PM)
             X = tf.nn.bias_add(X, B[-1])
             if i + 1 != len(WS):    #Last layer shouldn't apply activation function
                 X = AF(X)
-        if WSi[0] == 'C1d':         #1-D Convolutional Layer
+        elif WSi[0] == 'C1d':       #1-D Convolutional Layer
             W.append(tf.Variable(tf.truncated_normal(WSi[1], stddev = 5e-2)))
             B.append(tf.Variable(tf.constant(0.0, shape = [WSi[1][-1]])))
             X = tf.nn.conv1d(X, W[-1], WSi[2], padding = PM)
             X = tf.nn.bias_add(X, B[-1])
             if i + 1 != len(WS):    #Last layer shouldn't apply activation function
                 X = AF(X)
-        elif WSi[0] == 'P':         #Pooling layer
-            X = tf.nn.max_pool(X, ksize = WSi[1], strides = WSi[2], padding = PM)
-            X = tf.nn.lrn(X, 4, bias = 1.0, alpha = 0.001 / 9.0, beta = 0.75)
-        elif WSi[0] == 'P1d':       #1-D Pooling layer
-            X = tf.nn.pool(X, [WSi[1]], 'MAX', PM, strides = [WSi[2]])
         elif WSi[0] == 'F':         #Fully-connected layer
             if tf.rank(X) != 2:
                 X = tf.contrib.layers.flatten(X)
@@ -67,8 +62,18 @@ def _CreateCNN(AF, PM, WS, X):
             X = tf.matmul(X, W[-1]) + B[-1]
             if i + 1 != len(WS):    #Last layer shouldn't apply activation function
                 X = AF(X)
+        elif WSi[0] == 'LRN':
+            X = tf.nn.lrn(X, 4, bias = 1.0, alpha = 0.001 / 9.0, beta = 0.75)
+        elif WSi[0] == 'M':
+            X = tf.reduce_mean(X, WSi[1])
+        elif WSi[0] == 'P':         #Pooling layer
+            X = tf.nn.max_pool(X, ksize = WSi[1], strides = WSi[2], padding = PM)
+        elif WSi[0] == 'P1d':       #1-D Pooling layer
+            X = tf.nn.pool(X, [WSi[1]], 'MAX', PM, strides = [WSi[2]])
         elif WSi[0] == 'R':         #Reshape layer
             X = tf.reshape(X, WSi[1])
+        elif WSi[0] == 'S':
+            X = tf.reduce_sum(X, WSi[1])
         O.append(X)
     return O, W, B
 
@@ -111,22 +116,19 @@ def _CreateL2Reg(_W, _B):
         regularizers += tf.nn.l2_loss(_W[i]) + tf.nn.l2_loss(_B[i])
     return regularizers
 
-def _CreateVars(layers):
+def _CreateVars(_L):
     '''
     Create weight and bias vectors for an MLP
-    layers: The number of neurons in each layer (including input and output)
+    L: The number of neurons in each layer (including input and output)
     return: A tuple of lists of the weight and bias matrices respectively
     '''
-    weight = []
-    bias = []
-    n = len(layers)
+    _W, _B = [], []
+    n = len(_L)
     for i in range(n - 1):
-        lyrstd = np.sqrt(1.0 / layers[i])           #Fan-in for layer; used as standard dev
-        curW = tf.Variable(tf.random_normal([layers[i], layers[i + 1]], stddev = lyrstd))
-        weight.append(curW)
-        curB = tf.Variable(tf.random_normal([layers[i + 1]], stddev = lyrstd))
-        bias.append(curB)
-    return (weight, bias)
+        lyrstd = np.sqrt(1.0 / _L[i])           #Fan-in for layer; used as standard dev
+        _W.append(tf.Variable(tf.random_normal([_L[i], _L[i + 1]], stddev = lyrstd)))
+        _B.append(tf.Variable(tf.random_normal([_L[i + 1]], stddev = lyrstd)))
+    return (_W, _B)
 
 def _GetActvFn(name):
     '''
@@ -134,21 +136,10 @@ def _GetActvFn(name):
     name: The name of the activation function
     return: A handle for the tensorflow activation function
     '''
-    if name == 'tanh':
-        return tf.tanh
-    elif name == 'sig':
-        return tf.sigmoid
-    elif name == 'relu':
-        return tf.nn.relu
-    elif name == 'relu6':
-        return tf.nn.relu6
-    elif name == 'elu':
-        return tf.nn.elu
-    elif name == 'softplus':
-        return tf.nn.softplus
-    elif name == 'softsign':
-        return tf.nn.softsign
-    return None
+    return {'atanh': tf.atanh,          'elu': tf.nn.elu,
+            'sig': tf.sigmoid,          'softplus': tf.nn.softplus, 
+            'softsign': tf.nn.softsign, 'relu': tf.nn.relu,
+            'relu6': tf.nn.relu6,       'tanh': tf.tanh}.get(name)
     
 def _GetBatchRange(bs, mIter):
     '''
@@ -166,21 +157,11 @@ def _GetLossFn(name):
     name:   The name of the loss function
     return:     A handle for a loss function LF(YH, Y)
     '''
-    if name == 'l2':
-        return lambda YH, Y : tf.squared_difference(Y, YH)
-    elif name == 'l1':
-        return lambda YH, Y : tf.losses.absolute_difference(Y, YH)
-    elif name == 'smce':
-        return lambda YH, Y : tf.nn.softmax_cross_entropy_with_logits(labels = Y, logits = YH)
-    elif name == 'sgce':
-        return lambda YH, Y : tf.nn.sigmoid_cross_entropy_with_logits(labels = Y, logits = YH)
-    elif name == 'cos':
-        return lambda YH, Y : tf.losses.cosine_distance(Y, YH)
-    elif name == 'log':
-        return lambda YH, Y : tf.losses.log_loss(Y, YH)
-    elif name == 'hinge':
-        return lambda YH, Y : tf.losses.hinge_loss(Y, YH)
-    return None
+    return {'cos': lambda YH, Y : tf.losses.cosine_distance(Y, YH), 'hinge': lambda YH, Y : tf.losses.hinge_loss(Y, YH),
+            'l1': lambda YH, Y : tf.losses.absolute_difference(Y, YH), 'l2': lambda YH, Y : tf.squared_difference(Y, YH),
+            'log': lambda YH, Y : tf.losses.log_loss(Y, YH), 
+            'sgce': lambda YH, Y : tf.nn.sigmoid_cross_entropy_with_logits(labels = Y, logits = YH), 
+            'smce': lambda YH, Y : tf.nn.softmax_cross_entropy_with_logits(labels = Y, logits = YH)}.get(name)
 
 def _GetOptimizer(name, lr):
     '''
@@ -189,15 +170,10 @@ def _GetOptimizer(name, lr):
     lr:   The learning rate if applicable
     return;  A the tensorflow optimization object
     '''
-    if name == 'adam':
-        return tf.train.AdamOptimizer(learning_rate = lr)
-    elif name == 'grad':
-        return tf.train.GradientDescentOptimizer(learning_rate = lr)
-    elif name == 'adagrad':
-        return tf.train.AdagradOptimizer(learning_rate = lr)
-    elif name == 'ftrl':
-        return tf.train.FtrlOptimizer(learning_rate = lr)
-    return None
+    return {'adam': tf.train.AdamOptimizer(learning_rate = lr),
+            'adagrad': tf.train.AdagradOptimizer(learning_rate = lr),
+            'ftrl': tf.train.FtrlOptimizer(learning_rate = lr),
+            'grad': tf.train.GradientDescentOptimizer(learning_rate = lr)}.get(name)
 
 class ANN:
     sess = None     #Class variable shared among all instances
