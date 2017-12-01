@@ -9,7 +9,7 @@ import matplotlib.pyplot as mpl
 import matplotlib.animation as mpla
 from sklearn.metrics import mean_squared_error as MSE
 from sklearn.preprocessing import scale
-from TFMLP import MLPB
+from TFANN import MLPB
 from StockPredictor import ParseData
 
 #Converts a binary vector (left to right format) to an integer
@@ -97,7 +97,7 @@ if __name__ == "__main__":
     nIn = A.shape[1]
     nOut = Y.shape[1]
     nHid = (nOut + nIn) // 2
-    l = [nIn] + [nHid] * 8 + [nOut]
-    mlpr = MLPB(l, actvFn = 'tanh', optmzr = 'adam', maxItr = 64, tol = 0.0001, learnRate = 25e-5, verbose = True, reg = 1e-7)
+    l = [('F', nHid), ('AF', 'tanh')] * 4 + [('F', nOut)]
+    mlpr = MLPB([nIn], l, batchSize = 32, maxIter = 64, tol = 0.0001, learnRate = 25e-5, verbose = True, reg = 1e-7)
     
     a = PlotLearn(mlpr, A, Y)

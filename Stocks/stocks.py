@@ -13,7 +13,7 @@ import sys
 #Used to check validity of date
 from datetime import datetime
 
-#from TFANN import MLPR
+#from TFANN import ANNR
     
 #Display usage information
 def PrintUsage():
@@ -79,8 +79,8 @@ def Main(args):
     #Number of neurons in the hidden layers
     h = int((i + o) / 2)
     #The list of layer sizes
-    layers = [i, h, h, h, h, h, h, o]
-    #R = MLPR(layers, maxIter = 1000, tol = 0.01, reg = 0.001, verbose = True)
+    #layers = [('F', h), ('AF', 'tanh'), ('F', h), ('AF', 'tanh'), ('F', o)]
+    #R = ANNR([i], layers, maxIter = 1000, tol = 0.01, reg = 0.001, verbose = True)
     R = KNeighborsRegressor(n_neighbors = 5)
     sp = StockPredictor(R, nPastDays = numPastDays)
     #Learn the dataset and then display performance statistics

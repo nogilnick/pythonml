@@ -4,7 +4,7 @@ import string
 import sys
 from skimage.io import imread
 from sklearn.model_selection import ShuffleSplit
-from TFANN import CNNC
+from TFANN import ANNC
 
 def DivideIntoSubimages(I):
     '''
@@ -63,11 +63,14 @@ def SubimageShape(I):
 
 NC = len(string.ascii_letters + string.digits + ' ')
 MAX_CHAR = 64
-IS = (18, 640, 3)       #Image size for CNN
+IS = (14, 640, 3)       #Image size for CNN
 #Architecture of the neural network
-ws = [('C', [4, 4,  3, NC // 2], [1, 2, 2, 1]), ('C', [4, 4, NC // 2, NC], [1, 2, 1, 1]), ('C', [8, 5, NC, NC], [1, 8, 5, 1]), ('R', [-1, 64, NC])]
+ws = [('C', [4, 4,  3, NC // 2], [1, 2, 2, 1]), ('AF', 'relu'), 
+      ('C', [4, 4, NC // 2, NC], [1, 2, 1, 1]), ('AF', 'relu'), 
+      ('C', [8, 5, NC, NC], [1, 8, 5, 1]), ('AF', 'relu'),
+      ('R', [-1, 64, NC])]
 #Create the neural network in TensorFlow
-cnnc = CNNC(IS, ws, batchSize = 64, learnRate = 5e-5, maxIter = 4, reg = 1e-5, tol = 1e-2, verbose = True)
+cnnc = ANNC(IS, ws, batchSize = 64, learnRate = 5e-5, maxIter = 32, reg = 1e-5, tol = 1e-2, verbose = True)
 if not cnnc.RestoreModel('TFModel/', 'ocrnet'):
     A, Y, T, FN = LoadData()
     ss = ShuffleSplit(n_splits = 1, random_state = 42)

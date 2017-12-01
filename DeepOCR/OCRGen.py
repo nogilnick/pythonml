@@ -28,10 +28,10 @@ def GetFontSize(S):
 def GenSingleLine(MINC = 10, MAXC = 64, NIMG = 128, DP = 'Out'):               #Font path
     #The possible characters to use
     CS = list(string.ascii_letters) + list(string.digits)
-    MS = font.getsize('0' * MAXC)   #Size needed to fit MAXC characters
+    MS = GetFontSize('\n'.join(['0' * MAXC]))   #Size needed to fit MAXC characters
     Y = []
     for i in range(NIMG):               #Write images to ./Out/ directory
-        Si = ''.join(RC(CS, randint(MINC, MAXC)))
+        Si = ''.join(choice(CS, randint(MINC, MAXC)))
         FNi = str(i) + '.png'
         MakeImg(Si, TF, os.path.join(DP, FNi), MS)
         Y.append(FNi + ',' + Si)
@@ -50,4 +50,5 @@ def GenMultiLine(ML = 5, MINC = 10, MAXC = 64, NIMG = 128, DP = 'Img'):
         Y.append(FNi + ',' + Si.replace('\n', '@'))
         
 if __name__ == "__main__":
-    GenMultiLine(ML = 10, MAXC = 128)
+    #GenMultiLine(ML = 1, MAXC = 128)
+    GenSingleLine(NIMG = 1024)
