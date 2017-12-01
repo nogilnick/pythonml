@@ -53,7 +53,7 @@ For building an CNN classification model:
 
 ```python
 import numpy as np
-from TFANN import CNNC
+from TFANN import ANNC
 
 A = np.random.rand(32, 9, 9, 3)
 Y = np.array((16 * [1]) + (16 * [0]))
