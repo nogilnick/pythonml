@@ -25,27 +25,44 @@ A neural network module containing implementations of MLP, and CNN networks in T
 
 ```python
 import numpy as np
-from TFANN import MLPR
+from TFANN import ANNR
 
 A = np.random.rand(32, 4)
 Y = np.random.rand(32, 1)
-a = MLPR([4, 4, 1], batchSize = 4, learnRate = 1e-4, maxIter = 16, verbose = True)
+a = ANNR([4], [('F', 4), ('AF', 'tanh'), ('F', 1)], maxIter = 16, name = 'mlpr1')
 a.fit(A, Y)
-s = a.score(A, Y)
+S = a.score(A, Y)
 YH = a.predict(A)
 ```
 
-For building a classification model:
+For building an MLP classification model:
 
 ```python
 import numpy as np
-from TFANN import MLPC
+from TFANN import ANNC
 
 A = np.random.rand(32, 4)
 Y = np.array((16 * [1]) + (16 * [0]))
-a = MLPC([4, 4, 2], batchSize = 4, learnRate = 1e-4, maxIter = 16, verbose = True)
+a = ANNC([4], [('F', 4), ('AF', 'tanh'), ('F', 2)], maxIter = 16, name = 'mlpc2')
 a.fit(A, Y)
-s = a.score(A, Y)
+S = a.score(A, Y)
+YH = a.predict(A)
+```
+
+For building an CNN classification model:
+
+```python
+import numpy as np
+from TFANN import CNNC
+
+A = np.random.rand(32, 9, 9, 3)
+Y = np.array((16 * [1]) + (16 * [0]))
+ws = [('C', [3, 3, 3, 4], [1, 1, 1, 1]), ('AF', 'relu'), 
+      ('P', [1, 4, 4, 1], [1, 2, 2, 1]), ('F', 16), 
+      ('AF', 'relu'), ('F', 2)]
+a = ANNC([9, 9, 3], ws, maxIter = 12, name = "cnnc1")
+a.fit(A, Y)
+S = a.score(A, Y)
 YH = a.predict(A)
 ```
 
