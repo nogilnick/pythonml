@@ -18,59 +18,84 @@ def _Accuracy(Y, YH):
     '''
     return np.mean(Y == YH)
     
-def _CreateANN(PM, WS, X):
+def _CreateANN(PM, NA, X):
     '''
-    Sets up the graph for a convolutional neural network from a list of specifications 
-    of the form:
-    [('C', [5, 5, 3, 64], [1, 1, 1, 1]), ('P', [1, 3, 3, 1], [1, 2, 2, 1]),('F', 10),]
-    Where 'C' denotes a covolution layer, 'P' denotes a pooling layer, and 'F' denotes
-    a fully-connected layer.
-    pm:     The padding method
-    ws:     The specifications describe above
+    Sets up the graph for a convolutional neural network from 
+    a list of operation specifications like:
+    
+    [('C', [5, 5, 3, 64], [1, 1, 1, 1]), ('AF', 'tanh'), 
+     ('P', [1, 3, 3, 1], [1, 2, 2, 1]), ('F', 10)]
+    
+    Operation Types:
+    
+        AF:     ('AF', <name>)  Activation Function 'relu', 'tanh', etc
+        C:      ('C', [Filter Shape], [Stride])     2d Convolution
+        CT:     2d Convolution Transpose
+        C1d:    ('C1d', [Filter Shape], Stride)     1d Convolution
+        C3d:    ('C3d', [Filter Shape], [Stride])   3d Convolution
+        D:      ('D', Probability)                  Dropout Layer
+        F:      ('F', Output Neurons)               Fully-connected
+        LRN:    ('LRN')                             
+        M:      ('M', Dims)                         Average over Dims
+        P:      ('P', [Filter Shape], [Stride])     Max Pool
+        P1d:    ('P1d', [Filter Shape], Stride)     1d Max Pooling
+        R:      ('R', shape)                        Reshape
+        S:      ('S', Dims)                         Sum over Dims
+    
+    [Filter Shape]: (Height, Width, In Channels, Out Channels)
+    [Stride]:       (Batch, Height, Width, Channel)
+    Stride:         1-D Stride (single value)
+    
+    PM:     The padding method
+    NA:     The network architecture
     X:      Input tensor
     '''
+    WI = tf.contrib.layers.xavier_initializer() #Weight initializer
     W, B, O = [], [], [X]
-    for i, WSi in enumerate(WS):
-        if WSi[0] == 'AF':            #Apply an activation function ('AF', 'name')
-            AF = _GetActvFn(WSi[1])
+    for i, NAi in enumerate(NA):
+        if NAi[0] == 'AF':      #Apply an activation function ('AF', 'name')
+            AF = _GetActvFn(NAi[1])
             X = AF(X)
-        elif WSi[0] == 'C':           #2-D Convolutional layer
-            W.append(tf.Variable(tf.truncated_normal(WSi[1], stddev = 5e-2)))
-            B.append(tf.Variable(tf.constant(0.0, shape = [WSi[1][-1]])))
-            X = tf.nn.conv2d(X, W[-1], WSi[2], padding = PM)
+        elif NAi[0] == 'C':     #2-D Convolutional layer
+            W.append(tf.Variable(WI(NAi[1])))
+            B.append(tf.Variable(tf.constant(0.0, shape = [NAi[1][-1]])))
+            X = tf.nn.conv2d(X, W[-1], NAi[2], padding = PM)
             X = tf.nn.bias_add(X, B[-1])
-        elif WSi[0] == 'CT':        #2-D Convolutional Transpose layer
-            W.append(tf.Variable(tf.truncated_normal(WSi[1], stddev = 5e-2)))
-            B.append(tf.Variable(tf.constant(0.0, shape = [WSi[1][-2]])))
-            X = tf.nn.conv2d_transpose(X, W[-1], WSi[2], WSi[3], padding = PM)
+        elif NAi[0] == 'CT':    #2-D Convolutional Transpose layer
+            W.append(tf.Variable(WI(NAi[1])))
+            B.append(tf.Variable(tf.constant(0.0, shape = [NAi[1][-2]])))
+            X = tf.nn.conv2d_transpose(X, W[-1], NAi[2], NAi[3], padding = PM)
             X = tf.nn.bias_add(X, B[-1])
-        elif WSi[0] == 'C1d':       #1-D Convolutional Layer
-            W.append(tf.Variable(tf.truncated_normal(WSi[1], stddev = 5e-2)))
-            B.append(tf.Variable(tf.constant(0.0, shape = [WSi[1][-1]])))
-            X = tf.nn.conv1d(X, W[-1], WSi[2], padding = PM)
+        elif NAi[0] == 'C1d':   #1-D Convolutional Layer
+            W.append(tf.Variable(WI(NAi[1])))
+            B.append(tf.Variable(tf.constant(0.0, shape = [NAi[1][-1]])))
+            X = tf.nn.conv1d(X, W[-1], NAi[2], padding = PM)
             X = tf.nn.bias_add(X, B[-1])
-        elif WSi[0] == 'D':         #Dropout layer ('D', <probability>)
-            X = tf.nn.dropout(X, WSi[1])
-        elif WSi[0] == 'F':         #Fully-connected layer
+        elif NAi[0] == 'C3d':
+            W.append(tf.Variable(WI(NAi[1])))
+            B.append(tf.Variable(tf.constant(0.0, shape = [NAi[1][-1]])))
+            X = tf.nn.conv1d(X, W[-1], NAi[2], padding = PM)
+            X = tf.nn.bias_add(X, B[-1])
+        elif NAi[0] == 'D':     #Dropout layer ('D', <probability>)
+            X = tf.nn.dropout(X, NAi[1])
+        elif NAi[0] == 'F':     #Fully-connected layer
             if tf.rank(X) != 2:
                 X = tf.contrib.layers.flatten(X)
-            lls = X.get_shape()[1].value
-            lyrstd = np.sqrt(1.0 / lls)
-            W.append(tf.Variable(tf.random_normal([lls, WSi[1]], stddev = lyrstd)))
-            B.append(tf.Variable(tf.random_normal([WSi[1]], stddev = lyrstd)))
+            W.append(tf.Variable(WI([X.shape[1].value, NAi[1]])))
+            B.append(tf.Variable(WI([NAi[1]])))
             X = tf.matmul(X, W[-1]) + B[-1]
-        elif WSi[0] == 'LRN':
+        elif NAi[0] == 'LRN':
             X = tf.nn.lrn(X, 4, bias = 1.0, alpha = 0.001 / 9.0, beta = 0.75)
-        elif WSi[0] == 'M':
-            X = tf.reduce_mean(X, WSi[1])
-        elif WSi[0] == 'P':         #Pooling layer
-            X = tf.nn.max_pool(X, ksize = WSi[1], strides = WSi[2], padding = PM)
-        elif WSi[0] == 'P1d':       #1-D Pooling layer
-            X = tf.nn.pool(X, [WSi[1]], 'MAX', PM, strides = [WSi[2]])
-        elif WSi[0] == 'R':         #Reshape layer
-            X = tf.reshape(X, WSi[1])
-        elif WSi[0] == 'S':
-            X = tf.reduce_sum(X, WSi[1])
+        elif NAi[0] == 'M':
+            X = tf.reduce_mean(X, NAi[1])
+        elif NAi[0] == 'P':     #Pooling layer
+            X = tf.nn.max_pool(X, ksize = NAi[1], strides = NAi[2], padding = PM)
+        elif NAi[0] == 'P1d':   #1-D Pooling layer
+            X = tf.nn.pool(X, [NAi[1]], 'MAX', PM, strides = [NAi[2]])
+        elif NAi[0] == 'R':     #Reshape layer
+            X = tf.reshape(X, NAi[1])
+        elif NAi[0] == 'S':
+            X = tf.reduce_sum(X, NAi[1])
         O.append(X)
     return O, W, B
 
@@ -147,6 +172,8 @@ class ANN:
                  name = 'tfann', optmzrn = 'adam', pad = 'SAME', reg = None, tol = 1e-2, verbose = False, X = None, Y = None):
         '''
         Common arguments for all artificial neural network regression models
+        _IS:        Shape of a single input sample
+        _NA:        Network architecture (see _CreateANN)
         batchSize:  Size of training batches to use (use all if None)
         learnRate:  The learning rate parameter for the optimizer
         loss:       The name of the loss function (l2, l1, smce, sgme, cos, log, hinge) 
