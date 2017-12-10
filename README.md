@@ -21,7 +21,13 @@ print(S)
 
 ## TFANN
 
-A neural network module containing implementations of MLP, and CNN networks in TensorFlow. The classes in the module adhere to the scikit-learn fit, predict, score interface. Sample code for building an MLP regression model:
+A neural network module containing implementations of MLP, and CNN networks in TensorFlow. The classes in the module adhere to the scikit-learn fit, predict, score interface. Install the package using pip.
+
+```python
+pip install TFANN
+```
+
+Sample code for building an MLP regression model:
 
 ```python
 import numpy as np
