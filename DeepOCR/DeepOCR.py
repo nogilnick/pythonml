@@ -40,9 +40,10 @@ def FitModel():
     for PSi, Ti, FNi in zip(PS, T, FN):
         if np.random.rand() > 0.99: #Randomly select rows to print
             print(FNi + ': ' + Ti + ' -> ' + PSi)
-    print('Fitting CV data...')
+    print('Fitting with CV data...')
     #Fit remainder
-    cnnc.fit(A[tst], Y[tst])
+    cnnc.SetMaxIter(4)
+    cnnc.fit(A, Y)
     cnnc.SaveModel(os.path.join('TFModel', 'ocrnet'))
     with open('TFModel/_classes.txt', 'w') as F:
         F.write('\n'.join(cnnc._classes))
@@ -91,16 +92,18 @@ def SubimageShape(I):
     h, w, c = I.shape
     return h // IS[0], w // IS[1]
 
-NC = len(string.ascii_letters + string.digits + ' ')
-MAX_CHAR = 64
+NC = len(string.ascii_letters + string.digits + ' ')    #Number of possible characters
+MAX_CHAR = 64           #Max # characters per block
 IS = (18, 640, 3)       #Image size for CNN
 #Architecture of the neural network
-ws = [('C', [4, 4,  3, NC // 2], [1, 2, 2, 1]), ('AF', 'relu'), 
-      ('C', [4, 4, NC // 2, NC], [1, 2, 1, 1]), ('AF', 'relu'), 
-      ('C', [8, 5, NC, NC], [1, 8, 5, 1]), ('AF', 'relu'),
+#The input volume is reduce to the shape of the output in conv layers
+#18 / 2 * 3 * 3 = 1 and 640 / 2 * 5 = 64 output.shape
+ws = [('C', [4, 4,  3, NC // 2], [1, 2, 2, 1]), ('AF', 'relu'),     
+      ('C', [4, 4, NC // 2, NC], [1, 3, 1, 1]), ('AF', 'relu'), 
+      ('C', [8, 5, NC, NC], [1, 3, 5, 1]), ('AF', 'relu'),
       ('R', [-1, 64, NC])]
 #Create the neural network in TensorFlow
-cnnc = ANNC(IS, ws, batchSize = 128, learnRate = 5e-5, maxIter = 48, reg = 1e-5, tol = 1e-2, verbose = True)
+cnnc = ANNC(IS, ws, batchSize = 512, learnRate = 2e-5, maxIter = 64, reg = 1e-5, tol = 1e-2, verbose = True)
 if not cnnc.RestoreModel('TFModel/', 'ocrnet'):
     FitModel()
 else:

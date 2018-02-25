@@ -81,5 +81,5 @@ if __name__ == "__main__":
     nc, xc = 10, 64
     ms = GetFontSize(xc)
     print('CNN Image Size: ' + str(ms))
-    GenImage(1, 1, ms, nc, xc, NIMG = 9999, DP = 'Trn') #Training data
-    GenImage(4, 2, ms, nc, xc, NIMG = 256,  DP = 'Tst') #Testing data
+    GenImage(1, 1, ms, nc, xc, NIMG = 32768, DP = 'Trn') #Training data
+    GenImage(4, 2, ms, nc, xc, NIMG = 256,   DP = 'Tst') #Testing data
