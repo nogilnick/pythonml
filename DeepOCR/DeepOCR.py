@@ -98,9 +98,9 @@ IS = (18, 640, 3)       #Image size for CNN
 #Architecture of the neural network
 #The input volume is reduce to the shape of the output in conv layers
 #18 / 2 * 3 * 3 = 1 and 640 / 2 * 5 = 64 output.shape
-ws = [('C', [4, 4,  3, NC // 2], [1, 2, 2, 1]), ('AF', 'relu'),     
+ws = [('C', [5, 5,  3, NC // 2], [1, 2, 2, 1]), ('AF', 'relu'),     
       ('C', [4, 4, NC // 2, NC], [1, 3, 1, 1]), ('AF', 'relu'), 
-      ('C', [8, 5, NC, NC], [1, 3, 5, 1]), ('AF', 'relu'),
+      ('C', [3, 5, NC,      NC], [1, 3, 5, 1]), ('AF', 'relu'),
       ('R', [-1, 64, NC])]
 #Create the neural network in TensorFlow
 cnnc = ANNC(IS, ws, batchSize = 512, learnRate = 2e-5, maxIter = 64, reg = 1e-5, tol = 1e-2, verbose = True)
