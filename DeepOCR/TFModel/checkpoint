@@ -1,2 +1,2 @@
-model_checkpoint_path: "ocrnet"
-all_model_checkpoint_paths: "ocrnet"
+model_checkpoint_path: "ocrgraph"
+all_model_checkpoint_paths: "ocrgraph"
