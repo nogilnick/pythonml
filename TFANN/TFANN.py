@@ -140,7 +140,7 @@ def _GetLossFn(name):
             'l1': lambda YH, Y : tf.losses.absolute_difference(Y, YH), 'l2': lambda YH, Y : tf.squared_difference(Y, YH),
             'log': lambda YH, Y : tf.losses.log_loss(Y, YH), 
             'sgce': lambda YH, Y : tf.nn.sigmoid_cross_entropy_with_logits(labels = Y, logits = YH), 
-            'smce': lambda YH, Y : tf.nn.softmax_cross_entropy_with_logits(labels = Y, logits = YH)}.get(name)
+            'smce': lambda YH, Y : tf.nn.softmax_cross_entropy_with_logits_v2(labels = Y, logits = YH)}.get(name)
 
 def _GetOptimizer(name, lr):
     '''
@@ -169,7 +169,8 @@ class ANN:
             ANN.sess = None
 
     def __init__(self, _IS, _NA, batchSize = None, learnRate = 1e-4, loss = 'l2', maxIter = 1024,
-                 name = 'tfann', optmzrn = 'adam', pad = 'SAME', reg = None, tol = 1e-2, verbose = False, X = None, Y = None):
+                 name = 'tfann', optmzrn = 'adam', pad = 'SAME', reg = None, sesd = {}, 
+                 tol = 1e-2, verbose = False, X = None, Y = None):
         '''
         Common arguments for all artificial neural network regression models
         _IS:        Shape of a single input sample
@@ -181,6 +182,7 @@ class ANN:
         maxIter:    Maximum number of training iterations
         optmzrn:    The optimizer method to use ('adam', 'grad', 'adagrad', or 'ftrl')
         reg:        Weight of the regularization term (None for no regularization)
+        sesd:       Dictionary of arguments to be passed to tf.Session
         tol:        Training ends if error falls below this tolerance
         verbose:    Print training information
         X:          Tensor that is used as input to model; if None a new
@@ -198,6 +200,7 @@ class ANN:
         self.optmzrn = optmzrn                      #Optimizer method name
         self.pad = pad                              #Default padding method
         self.reg = reg                              #Regularization strength
+        self.sesD = sesd                            #Arguments for tf.Session
         self.stopIter = False                       #Flag for stopping training early
         self.tol = tol                              #Error tolerance
         self.vrbse = verbose                        #Verbose output
@@ -262,7 +265,7 @@ class ANN:
                 
     def GetSes(self):
         if ANN.sess is None:
-            config = tf.ConfigProto()
+            config = tf.ConfigProto(**self.sesD)
             config.gpu_options.allow_growth = True      #Only use GPU memory as needed
             ANN.sess = tf.Session(config = config)      #instead of allocating all up-front
         return ANN.sess
@@ -329,7 +332,7 @@ class ANN:
             saver = tf.train.Saver()
             saver.restore(self.GetSes(), p + n)
         except Exception as e:
-            print('Error restoring: ' + p + n)
+            print('Error restoring: ' + p + n, e)
             return False
         return True
 
@@ -467,8 +470,9 @@ class ANNC(ANN):
         super().fit(A, Y, FD)
 
     def __init__(self, _IS, _NA, batchSize = None, learnRate = 1e-3, loss = 'smce', maxIter = 1024, 
-                 name = 'tfann', optmzrn = 'adam', pad = 'SAME', reg = 1e-3, tol = 1e-2, verbose = False, X = None, Y = None):
-        super().__init__(_IS, _NA, batchSize, learnRate, loss, maxIter, name, optmzrn, pad, reg, tol, verbose, X, Y)
+                 name = 'tfann', optmzrn = 'adam', pad = 'SAME', reg = 1e-3, sesd = {}, tol = 1e-2, 
+                 verbose = False, X = None, Y = None):
+        super().__init__(_IS, _NA, batchSize, learnRate, loss, maxIter, name, optmzrn, pad, reg, sesd, tol, verbose, X, Y)
         a = len(self.O[-1].shape) - 1               #Class axis is last axis
         self.YHL = tf.argmax(self.O[-1], axis = a)  #Index of label with max probability
         self._classes = None                        #Lookup table for class labels
@@ -520,14 +524,15 @@ class MLPMC():
     Uses n classifiers to solve a multi-classification problem with n output columns.
     '''
     
-    def __init__(self, _IS, _NA, batchSize = None, learnRate = 1e-3, loss = 'smce', 
-                 maxIter = 1024, name = 'tfann', optmzrn = 'adam', pad = 'SAME', reg = None, tol = 1e-2, verbose = False, X = None, Y = None):
+    def __init__(self, _IS, _NA, batchSize = None, learnRate = 1e-3, loss = 'smce', maxIter = 1024, 
+                 name = 'tfann', optmzrn = 'adam', pad = 'SAME', reg = None, sesd = {}, tol = 1e-2, 
+                 verbose = False, X = None, Y = None):
         '''
         layers:     Only specify the input sizes and hidden layers sizes. Output layers are
                     automatically inferred from the cl parameter
         cl:         The lists of possible classes for each column (from left to right)    
         '''
-        self.M = [ANNC(_IS, _NAi, batchSize, learnRate, loss, maxIter, name, optmzrn, pad, reg, tol, verbose, X, Y) for _NAi in _NA]
+        self.M = [ANNC(_IS, _NAi, batchSize, learnRate, loss, maxIter, name, optmzrn, pad, reg, sesd, tol, verbose, X, Y) for _NAi in _NA]
  
     def fit(self, A, Y, FD = None):
         for i, Mi in enumerate(self.M): #Loop over all columns in output
