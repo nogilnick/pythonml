@@ -75,7 +75,3 @@ YH = a.predict(A)
 ## TheanoANN.py
 
 A neural network module containing implementations of MLP networks in Theano. The classes in the module adhere to the scikit-learn fit, predict, score interface.
-
-## Stocks
-
-Code for predicting stock price based on historical data. [See this blog post](https://nicholastsmith.wordpress.com/2016/11/04/stock-market-prediction-in-python-part-2/) for more information.
