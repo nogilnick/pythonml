@@ -4,7 +4,7 @@ Repository containing various python machine learning modules. Several of the mo
 
 ## bprop.py
 
-A straightforward impelementation of the backpropagation algorithm for MLP networks. [See this blog post](https://nicholastsmith.wordpress.com/2016/03/27/multi-layer-perceptrons-and-backpropagation-a-derivation-and-implementation-in-python/) for more information.
+A straightforward impelementation of the backpropagation algorithm for MLP networks . [See this blog post](https://nicholastsmith.wordpress.com/2016/03/27/multi-layer-perceptrons-and-backpropagation-a-derivation-and-implementation-in-python/) for more information.
 
 ## DeepOCR
 
